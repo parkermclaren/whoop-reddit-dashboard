@@ -4,12 +4,5 @@
       "path": "/api/cron?secret=$CRON_SECRET",
       "schedule": "0 * * * *"
     }
-  ],
-  "env": {
-    "CRON_SECRET": {
-      "development": "",
-      "preview": "",
-      "production": "@cron-secret"
-    }
-  }
+  ]
 } 
