@@ -19,11 +19,40 @@ import { createClient } from '@supabase/supabase-js';
 // Load environment variables from .env.local
 dotenv.config({ path: '.env.local' });
 
+// Add global type declaration for pipelineStartTime
+declare global {
+  var pipelineStartTime: number;
+}
+
 // Setup Supabase client
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_KEY!
 );
+
+// Time-based constants to prevent timeout
+const MAX_EXECUTION_TIME_MS = 270 * 1000; // 4.5 minutes max execution time
+
+/**
+ * Checks if we're approaching the API route timeout limit
+ * @returns True if we should abort further processing to avoid timeout
+ */
+function isApproachingTimeout(): boolean {
+  // Ensure global pipelineStartTime exists
+  if (typeof global.pipelineStartTime !== 'number') {
+    // If not set, assume we're at risk
+    return true;
+  }
+  
+  const elapsedMs = Date.now() - global.pipelineStartTime;
+  const isNearTimeout = elapsedMs > MAX_EXECUTION_TIME_MS;
+  
+  if (isNearTimeout) {
+    console.warn(`⚠️ Approaching timeout limit (${(elapsedMs/1000).toFixed(1)}s elapsed). Wrapping up pipeline.`);
+  }
+  
+  return isNearTimeout;
+}
 
 /**
  * Main continuous pipeline function that runs all steps in sequence
@@ -40,6 +69,12 @@ async function runContinuousPipeline(): Promise<boolean> {
     
     if (!collectionSuccess) {
       console.error('⚠️ Reddit data collection encountered errors, but continuing with pipeline...');
+    }
+    
+    // Check for timeout after collection step
+    if (isApproachingTimeout()) {
+      console.log('⏱️ Timeout risk detected after data collection. Stopping pipeline early.');
+      return true; // Return success since we did collect data
     }
     
     // Step 2: Analyze unprocessed posts with GPT-4o mini
@@ -71,11 +106,17 @@ async function runContinuousPipeline(): Promise<boolean> {
       return true;
     }
     
-    // Run the basic analysis
+    // Run the basic analysis - set processImages to false to speed up processing
     const analysisSuccess = await analyzeUnprocessedPosts();
     
     if (!analysisSuccess) {
       console.error('⚠️ Post analysis encountered errors, but continuing with pipeline...');
+    }
+    
+    // Check for timeout after basic analysis step
+    if (isApproachingTimeout()) {
+      console.log('⏱️ Timeout risk detected after basic analysis. Stopping pipeline early.');
+      return true; // Return success since we did analyze posts
     }
     
     // Step 3: Run extended analysis ONLY on the posts we just processed in this run
@@ -99,6 +140,12 @@ async function runContinuousPipeline(): Promise<boolean> {
         let extendedFailedCount = 0;
         
         for (const post of newlyAnalyzedPosts) {
+          // Check for timeout before each extended analysis to avoid cutting in the middle
+          if (isApproachingTimeout()) {
+            console.log(`⏱️ Timeout risk detected. Processed ${extendedSuccessCount} extended analyses before stopping.`);
+            break;
+          }
+          
           try {
             const success = await extendAnalysisForPost(post.content_id);
             
@@ -121,6 +168,12 @@ async function runContinuousPipeline(): Promise<boolean> {
         console.log('No newly analyzed posts found for extended analysis.');
       }
       
+      // Check for timeout after extended analysis
+      if (isApproachingTimeout()) {
+        console.log('⏱️ Timeout risk detected after extended analysis. Stopping pipeline early.');
+        return true;
+      }
+      
       // Step 4: Run product review analysis ONLY on the posts we just processed in this run
       console.log('\n🔍 STEP 4: Running product review analysis on newly processed posts...');
       
@@ -133,6 +186,12 @@ async function runContinuousPipeline(): Promise<boolean> {
         let productFailedCount = 0;
         
         for (const post of newlyAnalyzedPosts) {
+          // Check for timeout before each product review analysis
+          if (isApproachingTimeout()) {
+            console.log(`⏱️ Timeout risk detected. Processed ${productSuccessCount} product reviews before stopping.`);
+            break;
+          }
+          
           try {
             const success = await analyzeProductReviewForPost(post.content_id);
             
@@ -156,6 +215,12 @@ async function runContinuousPipeline(): Promise<boolean> {
       }
     }
     
+    // Check for timeout after product review analysis
+    if (isApproachingTimeout()) {
+      console.log('⏱️ Timeout risk detected after product review analysis. Stopping pipeline early.');
+      return true;
+    }
+    
     // Step 5: Process question embeddings for newly analyzed posts
     console.log('\n🧠 STEP 5: Processing question embeddings from newly analyzed posts...');
     
@@ -169,6 +234,12 @@ async function runContinuousPipeline(): Promise<boolean> {
       }
     } else {
       console.log('No new posts to process for question embeddings.');
+    }
+    
+    // Check for timeout after question embeddings
+    if (isApproachingTimeout()) {
+      console.log('⏱️ Timeout risk detected after question embeddings. Skipping metrics update.');
+      return true;
     }
     
     // Step 6: Update metrics for existing posts based on their age
