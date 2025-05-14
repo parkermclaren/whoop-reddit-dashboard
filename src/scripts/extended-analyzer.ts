@@ -172,6 +172,22 @@ async function getExtendedAnalysis(content: string): Promise<any> {
  */
 export async function extendAnalysisForPost(postId: string): Promise<boolean> {
   try {
+    // First check if extended analysis already exists
+    const { data: existingAnalysis, error: checkError } = await supabase
+      .from('analysis_results')
+      .select('competitor_mentions')
+      .eq('content_id', postId)
+      .eq('content_type', 'post')
+      .single();
+    
+    if (checkError) {
+      console.error(`Error checking existing extended analysis for post ${postId}:`, checkError);
+      // Continue anyway as this is a safety check
+    } else if (existingAnalysis && existingAnalysis.competitor_mentions && existingAnalysis.competitor_mentions.length > 0) {
+      console.log(`Extended analysis already exists for post ${postId}, skipping.`);
+      return true; // Return success since it's already analyzed
+    }
+    
     // Get post data and existing analysis
     const { data: post, error: postError } = await supabase
       .from('reddit_posts')
@@ -185,14 +201,14 @@ export async function extendAnalysisForPost(postId: string): Promise<boolean> {
     }
     
     // Get existing analysis
-    const { data: existingAnalysis, error: analysisError } = await supabase
+    const { data: analysisResult, error: analysisError } = await supabase
       .from('analysis_results')
       .select('*')
       .eq('content_id', postId)
       .eq('content_type', 'post')
       .single();
     
-    if (analysisError || !existingAnalysis) {
+    if (analysisError || !analysisResult) {
       console.error(`Error: No existing analysis found for post ${postId}`);
       return false;
     }
@@ -223,7 +239,7 @@ export async function extendAnalysisForPost(postId: string): Promise<boolean> {
         user_questions: extendedAnalysis.user_questions || [],
         updated_at: new Date().toISOString()
       })
-      .eq('id', existingAnalysis.id);
+      .eq('id', analysisResult.id);
     
     if (updateError) {
       console.error(`Error updating analysis for post ${postId}:`, updateError);

@@ -255,29 +255,29 @@ export default function CompetitorMentions() {
             return (
               <div 
                 key={competitor.name}
-                className={`bg-[#2c2e33] rounded-lg p-2 pt-3 transition-all duration-200 cursor-pointer ${
+                className={`bg-[#2c2e33] rounded-lg p-3 transition-all duration-200 cursor-pointer ${
                   selectedCompetitor === competitor.name ? 'ring-2 ring-blue-500 bg-[#33363c]' : 'hover:bg-[#33363c]'
-                }`}
+                } relative group h-24 flex items-center justify-center`}
                 onClick={() => setSelectedCompetitor(competitor.name)}
               >
-                <div className="flex flex-col items-center text-center justify-center h-full">
-                  <div className={`w-12 h-12 mb-2 flex items-center justify-center overflow-hidden ${needsWhiteBackground ? 'bg-white rounded-full' : ''}`}>
-                    <img 
-                      src={competitor.logo} 
-                      alt={`${competitor.name} logo`} 
-                      className={`object-contain ${needsLargerSize ? 'w-11 h-11' : 'w-9 h-9'}`}
-                      onError={(e) => {
-                        const target = e.target as HTMLImageElement;
-                        target.src = '/logos/generic.png'; 
-                      }}
-                    />
-                  </div>
-                  <div className="w-full">
-                    <h3 className="font-medium text-xs text-white leading-tight mb-1" title={competitor.originalNames.join(', ')}>
-                      {competitor.name}
-                    </h3>
-                    <p className="text-xs text-gray-400">{competitor.count}</p>
-                  </div>
+                <div className={`w-full h-full flex items-center justify-center overflow-hidden ${needsWhiteBackground ? 'bg-white rounded-xl' : ''}`}>
+                  <img 
+                    src={competitor.logo} 
+                    alt={`${competitor.name} logo`} 
+                    className={`object-contain ${needsLargerSize ? 'w-20 h-20' : 'w-16 h-16'}`}
+                    onError={(e) => {
+                      const target = e.target as HTMLImageElement;
+                      target.src = '/logos/generic.png'; 
+                    }}
+                  />
+                </div>
+                
+                {/* Tooltip on hover */}
+                <div className="absolute inset-0 flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200 bg-[#33363c] bg-opacity-90 rounded-lg">
+                  <p className="text-sm font-medium text-white mb-1" title={competitor.originalNames.join(', ')}>
+                    {competitor.name}
+                  </p>
+                  <p className="text-xs text-gray-300">{competitor.count} mentions</p>
                 </div>
               </div>
             );

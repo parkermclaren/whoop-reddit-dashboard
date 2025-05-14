@@ -11,6 +11,8 @@ import Header from '@/components/Header';
 import FeatureInsights from '@/components/FeatureInsights';
 import CompetitorMentions from '@/components/CompetitorMentions';
 import CancellationInsights from '@/components/CancellationInsights';
+import InfoButton from '@/components/InfoButton';
+import ProductSatisfactionInsights from '@/components/ProductSatisfactionInsights';
 import { useState } from 'react';
 import Image from 'next/image';
 
@@ -36,20 +38,64 @@ export default function Home() {
     <main className="min-h-screen bg-[#1a1c20] text-white">
       <Header />
       
-      <div className="container mx-auto px-4 py-6">
-        <div className="mb-8">
-          <h1 className="text-2xl font-semibold mb-2">WHOOP REDDIT INSIGHTS</h1>
-          <p className="text-gray-400">
-            Analysis of 780 Reddit posts from r/whoop following the May 8, 2025 product announcement
-          </p>
+      <div id="dashboard-content" className="container mx-auto px-4 py-6">
+        <div className="mb-12 relative">
+          <div className="absolute right-0 top-0 w-1/2 h-full flex items-center justify-center overflow-hidden pointer-events-none z-0">
+            <Image 
+              src="/logos/whooplogo.svg_.png" 
+              alt="WHOOP Logo" 
+              width={600} 
+              height={600}
+              className="object-contain opacity-20"
+              priority
+            />
+          </div>
+          <div className="relative z-10">
+            <h1 className="text-3xl font-semibold mb-4">WHOOP REDDIT INSIGHTS</h1>
+            
+            <div className="space-y-4 max-w-4xl">
+              <p className="text-gray-200 leading-relaxed">
+                This dashboard transforms the organic, unfiltered conversations from <a href="https://www.reddit.com/r/whoop/" target="_blank" rel="noopener noreferrer" className="text-[#44d7b6] hover:underline">r/whoop</a> into structured data and actionable insights following the <a href="https://www.youtube.com/watch?v=rZm8VHPkPoI" target="_blank" rel="noopener noreferrer" className="text-[#44d7b6] hover:underline">Unlocked 2025</a> product announcement on May 8th, 2025 at 10am EST.
+              </p>
+              
+              <div className="border-l-4 border-[#44d7b6] pl-4 py-1">
+                <p className="text-gray-200 leading-relaxed">
+                  <span className="font-semibold">Why Reddit matters:</span> Reddit offers unfiltered customer sentiment where authenticity is rewarded. This community-driven platform provides direct insights into user experiences that more curated channels simply can't match.
+                </p>
+              </div>
+              
+              <div className="border-l-4 border-[#44d7b6] pl-4 py-1">
+                <p className="text-gray-200 leading-relaxed">
+                  <span className="font-semibold">Why AI-powered analysis:</span> LLMs excel at analyzing sentiment and extracting key information from unstructured text. They process thousands of conversations in minutes, delivering insights that would take weeks of manual human analysis to uncover.
+                </p>
+              </div>
+              
+              <p className="text-gray-200 leading-relaxed">
+                Updated each hour through our automated pipeline, this dashboard bridges the gap between raw community feedback and actionable product insights — transforming social noise into strategic direction.
+              </p>
+            </div>
+          </div>
         </div>
         
         <Stats />
         
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-          <div className="bg-[#24262b] rounded-xl p-6 shadow-lg">
+          <div id="feature-analysis" className="bg-[#24262b] rounded-xl p-6 shadow-lg relative scroll-mt-24">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-lg font-semibold uppercase">Feature Analysis</h2>
+              <div className="absolute top-6 right-6">
+                <InfoButton title="Feature Analysis Methodology">
+                  <p className="text-gray-300 mb-2">
+                    This visualization maps newly announced WHOOP features discussed in r/whoop following the Unlocked 2025 event.
+                  </p>
+                  <p className="text-gray-300 mb-1">
+                    <span className="font-semibold">Size</span>: Represents frequency of mention across posts
+                  </p>
+                  <p className="text-gray-300">
+                    <span className="font-semibold">Color</span>: Indicates sentiment (red = negative, green = positive)
+                  </p>
+                </InfoButton>
+              </div>
             </div>
             <p className="text-sm text-gray-400 mb-4">
               New features mentioned in community discussions (size = mentions, color = sentiment)
@@ -57,25 +103,54 @@ export default function Home() {
             <KeywordCloud />
           </div>
           
-          <div className="bg-[#24262b] rounded-xl p-6 shadow-lg">
+          <div id="theme-distribution" className="bg-[#24262b] rounded-xl p-6 shadow-lg relative scroll-mt-24">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-lg font-semibold uppercase">Theme Distribution</h2>
-              <div className="flex space-x-2">
+              <div className="flex items-center space-x-2">
                 <button className="bg-[#1a1c20] px-3 py-1 rounded text-sm">Top 5</button>
+                <InfoButton title="Theme Distribution Analysis">
+                  <p className="text-gray-300 mb-2">
+                    This chart shows the most common discussion themes extracted from Reddit posts by GPT-4o-mini.
+                  </p>
+                  <p className="text-gray-300">
+                    Each bar is color-coded to show the sentiment distribution within that theme (red = negative, gray = neutral, green = positive).
+                  </p>
+                </InfoButton>
               </div>
             </div>
             <p className="text-sm text-gray-400 mb-4">
               Key topics discussed following the announcement
             </p>
             <ThemeBreakdown />
-            <div className="mt-4 text-sm text-gray-400">
-              <p>"Subscription pricing" and "hardware design" were the most discussed topics with predominantly negative sentiment. "New health metrics" received the most positive feedback proportionally.</p>
+            <div className="mt-4 flex justify-center space-x-4 text-sm">
+              <div className="flex items-center">
+                <div className="h-3 w-3 rounded-full bg-[rgba(68,215,182,0.7)] mr-2"></div>
+                <span className="text-gray-400">Positive</span>
+              </div>
+              <div className="flex items-center">
+                <div className="h-3 w-3 rounded-full bg-[rgba(180,180,180,0.7)] mr-2"></div>
+                <span className="text-gray-400">Neutral</span>
+              </div>
+              <div className="flex items-center">
+                <div className="h-3 w-3 rounded-full bg-[rgba(245,108,108,0.7)] mr-2"></div>
+                <span className="text-gray-400">Negative</span>
+              </div>
             </div>
           </div>
         </div>
         
-        <div className="bg-[#24262b] rounded-xl p-6 shadow-lg mb-8">
+        <div id="top-posts" className="bg-[#24262b] rounded-xl p-6 shadow-lg mb-8 relative scroll-mt-24">
           <h2 className="text-lg font-semibold uppercase mb-2">Top Posts by Engagement</h2>
+          <div className="absolute top-6 right-6">
+            <InfoButton title="Top Posts Analysis">
+              <p className="text-gray-300 mb-2">
+                This table shows the most engaging posts from r/whoop sorted by upvotes and comment count.
+              </p>
+              <p className="text-gray-300">
+                Each post has been analyzed by GPT-4o-mini to extract sentiment, key topics, and relevance to the product announcement.
+              </p>
+            </InfoButton>
+          </div>
           <TopPostsTable />
           <div className="mt-4 text-sm text-gray-400">
             <p>
@@ -85,8 +160,18 @@ export default function Home() {
           </div>
         </div>
         
-        <div className="bg-[#24262b] rounded-xl p-6 shadow-lg mb-8">
+        <div id="feature-feedback" className="bg-[#24262b] rounded-xl p-6 shadow-lg mb-8 relative scroll-mt-24">
           <h2 className="text-lg font-semibold uppercase mb-2">Feature Feedback Quotes</h2>
+          <div className="absolute top-6 right-6">
+            <InfoButton title="Feature Feedback Analysis">
+              <p className="text-gray-300 mb-2">
+                This component displays representative quotes for each new WHOOP feature.
+              </p>
+              <p className="text-gray-300">
+                GPT-4o-mini identified direct mentions of specific features and extracted the most impactful quotes based on sentiment strength and engagement metrics.
+              </p>
+            </InfoButton>
+          </div>
           <p className="text-sm text-gray-400 mb-4">
             Most impactful community quotes about each new feature
           </p>
@@ -98,8 +183,42 @@ export default function Home() {
           </div>
         </div>
         
-        <div className="bg-[#24262b] rounded-xl p-6 shadow-lg mb-8">
+        {/* New Product Satisfaction Insights Component */}
+        <div id="product-satisfaction" className="bg-[#24262b] rounded-xl p-6 shadow-lg mb-8 relative scroll-mt-24">
+          <h2 className="text-lg font-semibold uppercase mb-2">Product Satisfaction Among Confirmed Recipients</h2>
+          <div className="absolute top-6 right-6">
+            <InfoButton title="Product Satisfaction Analysis">
+              <p className="text-gray-300 mb-2">
+                <span className="text-[#44d7b6] font-medium">Important:</span> This analysis includes ONLY users who have explicitly confirmed receiving their new WHOOP hardware.
+              </p>
+              <p className="text-gray-300">
+                This side-by-side comparison reveals early satisfaction data for the two main new products (WHOOP 5.0 and WHOOP MG) among actual users, showing the breakdown between satisfied, neutral, and dissatisfied customers.
+              </p>
+            </InfoButton>
+          </div>
+          <p className="text-sm text-gray-400 mb-4">
+            Direct comparison of WHOOP 5.0 vs WHOOP MG satisfaction metrics from users who have confirmed receiving their device
+          </p>
+          <ProductSatisfactionInsights />
+          <div className="mt-4 text-sm text-gray-400">
+            <p>
+              This data represents actual hands-on experience with the new hardware, providing valuable insights into real-world product performance.
+            </p>
+          </div>
+        </div>
+        
+        <div id="competitor-mentions" className="bg-[#24262b] rounded-xl p-6 shadow-lg mb-8 relative scroll-mt-24">
           <h2 className="text-lg font-semibold uppercase mb-2">Competitor Mentions</h2>
+          <div className="absolute top-6 right-6">
+            <InfoButton title="Competitor Analysis Methodology">
+              <p className="text-gray-300 mb-2">
+                This visualization shows how frequently competitors are mentioned in r/whoop discussions.
+              </p>
+              <p className="text-gray-300">
+                GPT-4o-mini identifies mentions of competing fitness trackers and analyzes the sentiment context around each mention. This helps understand which alternatives users are considering.
+              </p>
+            </InfoButton>
+          </div>
           <p className="text-sm text-gray-400 mb-4">
             Breakdown of competitors mentioned in community discussions
           </p>
@@ -111,8 +230,18 @@ export default function Home() {
           </div>
         </div>
         
-        <div className="bg-[#24262b] rounded-xl p-6 shadow-lg mb-8">
+        <div id="cancellation-insights" className="bg-[#24262b] rounded-xl p-6 shadow-lg mb-8 relative scroll-mt-24">
           <h2 className="text-lg font-semibold uppercase mb-2">Cancellation Insights</h2>
+          <div className="absolute top-6 right-6">
+            <InfoButton title="Cancellation Analysis">
+              <p className="text-gray-300 mb-2">
+                This analysis identifies posts where users mention canceling their WHOOP membership.
+              </p>
+              <p className="text-gray-300">
+                GPT-4o-mini extracts the primary reasons driving cancellation decisions, categorizing them to help understand retention challenges.
+              </p>
+            </InfoButton>
+          </div>
           <p className="text-sm text-gray-400 mb-4">
             Analysis of users mentioning cancellation of their WHOOP membership
           </p>
@@ -124,8 +253,18 @@ export default function Home() {
           </div>
         </div>
         
-        <div className="bg-[#24262b] rounded-xl p-6 shadow-lg">
+        <div id="faqs" className="bg-[#24262b] rounded-xl p-6 shadow-lg relative scroll-mt-24">
           <h2 className="text-lg font-semibold uppercase mb-2">Frequently Asked Questions</h2>
+          <div className="absolute top-6 right-6">
+            <InfoButton title="FAQ Analysis">
+              <p className="text-gray-300 mb-2">
+                This component displays the most common questions from the r/whoop community, organized by topic.
+              </p>
+              <p className="text-gray-300">
+                GPT-4o-mini identifies question patterns in posts and comments, then clusters similar questions to reveal the most pressing concerns from users.
+              </p>
+            </InfoButton>
+          </div>
           <p className="text-sm text-gray-400 mb-4">
             Top questions from the community grouped by topic
           </p>
@@ -150,7 +289,7 @@ export default function Home() {
                   width={224} 
                   height={224}
                   className="object-cover w-full h-full"
-                  style={{ objectPosition: 'center 25%' }}
+                  style={{ objectPosition: 'center 10%' }}
                 />
               </div>
             </div>
@@ -158,8 +297,7 @@ export default function Home() {
             <div className="text-center md:text-left max-w-md">
               <h3 className="text-xl font-bold mb-2">Parker McLaren, MBA</h3>
               <p className="text-gray-300 mb-4">
-                Passionate data analyst and visualization expert with a keen interest in health and fitness technology. 
-                Building insights to help WHOOP better understand their community.
+                Athlete, biohacker, and AI-native generalist with an interest in health-tech startups. Seeking to join WHOOP team.
               </p>
               
               <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-6 text-sm justify-center md:justify-start mb-4">
@@ -179,7 +317,7 @@ export default function Home() {
               
               <div className="flex justify-center md:justify-start space-x-4">
                 <a 
-                  href="https://github.com" 
+                  href="https://github.com/parkermclaren" 
                   target="_blank" 
                   rel="noopener noreferrer"
                   className="bg-gray-700 hover:bg-gray-600 text-white p-2 rounded-full"
@@ -189,7 +327,7 @@ export default function Home() {
                   </svg>
                 </a>
                 <a 
-                  href="https://linkedin.com" 
+                  href="https://www.linkedin.com/in/parker-mclaren/" 
                   target="_blank" 
                   rel="noopener noreferrer"
                   className="bg-gray-700 hover:bg-gray-600 text-white p-2 rounded-full"
@@ -200,10 +338,6 @@ export default function Home() {
                 </a>
               </div>
             </div>
-          </div>
-          
-          <div className="text-center mt-8 text-gray-400 text-sm">
-            <p>Seeking to join the WHOOP team to transform fitness data into actionable insights that help people reach their full potential.</p>
           </div>
         </div>
       </footer>

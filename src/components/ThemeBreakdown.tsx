@@ -142,7 +142,7 @@ export default function ThemeBreakdown() {
     },
     plugins: {
       legend: {
-        display: true,
+        display: false,
         position: 'bottom' as const,
         align: 'start' as const,
         labels: {

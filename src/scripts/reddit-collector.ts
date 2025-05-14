@@ -53,6 +53,7 @@ const IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
 const PAGE_SIZE = 100; // Maximum allowed by Reddit API
 
 // Set the announcement date - May 8, 2025, at 10am Eastern Time
+// Kept as a fallback in case collection metadata doesn't exist
 const ANNOUNCEMENT_DATE = new Date('2025-05-08T10:00:00-04:00');
 
 // Types for our data
@@ -89,7 +90,30 @@ interface RedditApiOptions {
 export async function collectRedditData(): Promise<boolean> {
   try {
     console.log('Starting Reddit data collection...');
-    console.log(`Collecting ALL posts since ${ANNOUNCEMENT_DATE.toLocaleString()}...`);
+    
+    // Get the last collection timestamp from the database
+    const { data: lastRunData, error: metadataError } = await supabase
+      .from('collection_metadata')
+      .select('last_collection_time, posts_collected')
+      .eq('id', 'reddit-collection')
+      .single();
+    
+    // Default to the announcement date if no previous run or error
+    let lastCollectionTime = ANNOUNCEMENT_DATE;
+    let previousPostsCollected = 0;
+    
+    if (lastRunData?.last_collection_time) {
+      lastCollectionTime = new Date(lastRunData.last_collection_time);
+      previousPostsCollected = lastRunData.posts_collected || 0;
+      console.log(`Using last collection time: ${lastCollectionTime.toLocaleString()}`);
+    } else {
+      console.log(`No previous collection data found. Starting from announcement date: ${ANNOUNCEMENT_DATE.toLocaleString()}`);
+      if (metadataError) {
+        console.error(`Error fetching collection metadata:`, metadataError);
+      }
+    }
+    
+    console.log(`Collecting Reddit posts since ${lastCollectionTime.toLocaleString()}...`);
     
     let allPostsCollected = false;
     let after: string | null = null;
@@ -125,9 +149,9 @@ export async function collectRedditData(): Promise<boolean> {
       
       // Process each post
       for (const post of newPosts) {
-        // Check if post is older than the announcement date
+        // Check if post is older than the cutoff date
         const postDate = new Date(post.created_utc * 1000);
-        if (postDate < ANNOUNCEMENT_DATE) {
+        if (postDate < lastCollectionTime) {
           tooOldPostsCount++;
           foundOldPosts = true;
           continue;
@@ -256,7 +280,7 @@ export async function collectRedditData(): Promise<boolean> {
       
       // If we've processed posts older than our cutoff, we can stop paginating
       if (foundOldPosts && tooOldPostsCount > 5) {
-        console.log(`Found multiple posts older than the cutoff date (${ANNOUNCEMENT_DATE.toLocaleString()}). Stopping pagination.`);
+        console.log(`Found multiple posts older than the cutoff date (${lastCollectionTime.toLocaleString()}). Stopping pagination.`);
         allPostsCollected = true;
       }
       
@@ -269,7 +293,27 @@ export async function collectRedditData(): Promise<boolean> {
       console.log(`Processed ${totalProcessedPosts} posts so far. Skipped ${tooOldPostsCount} too-old posts.`);
     }
     
-    console.log(`Reddit data collection completed. Processed ${totalProcessedPosts} posts total.`);
+    // Update the last collection time in the database
+    const now = new Date();
+    const totalPostsCollected = previousPostsCollected + totalProcessedPosts;
+    
+    const { error: updateError } = await supabase
+      .from('collection_metadata')
+      .upsert({
+        id: 'reddit-collection',
+        last_collection_time: now.toISOString(),
+        posts_collected: totalPostsCollected,
+        last_updated: now.toISOString()
+      });
+    
+    if (updateError) {
+      console.error('Error updating collection metadata:', updateError);
+    } else {
+      console.log(`Updated collection metadata. New last collection time: ${now.toISOString()}`);
+      console.log(`Total posts collected to date: ${totalPostsCollected}`);
+    }
+    
+    console.log(`Reddit data collection completed. Processed ${totalProcessedPosts} posts in this run.`);
     return true;
   } catch (error) {
     console.error('Error in Reddit data collection:', error);

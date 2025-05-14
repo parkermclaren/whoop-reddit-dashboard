@@ -20,6 +20,7 @@ export default function Stats() {
   const [hoverStat, setHoverStat] = useState<'negative' | 'neutral' | 'positive' | null>(null);
   const [announcementRelatedPercent, setAnnouncementRelatedPercent] = useState<number | null>(null);
   const [peakActivityPostCount, setPeakActivityPostCount] = useState<number>(392);
+  const [postsLast24Hours, setPostsLast24Hours] = useState<number>(146);
 
   useEffect(() => {
     const fetchSentimentStats = async () => {
@@ -114,8 +115,32 @@ export default function Stats() {
       }
     };
     
+    const fetchRecentPosts = async () => {
+      try {
+        const supabase = createClient();
+        // Get posts from the last 24 hours
+        const oneDayAgo = new Date();
+        oneDayAgo.setDate(oneDayAgo.getDate() - 1);
+        
+        const { data, error } = await supabase
+          .from('reddit_posts')
+          .select('id')
+          .gte('created_at', oneDayAgo.toISOString());
+        
+        if (error) throw error;
+        
+        if (data) {
+          setPostsLast24Hours(data.length);
+        }
+      } catch (err) {
+        console.error('Error fetching recent posts:', err);
+        // Keep the default value
+      }
+    };
+    
     fetchSentimentStats();
     fetchAnnouncementRelatedStats();
+    fetchRecentPosts();
   }, []);
 
   // Helper to get tooltip text for hover
@@ -138,9 +163,9 @@ export default function Stats() {
         <h3 className="text-sm text-gray-400 uppercase mb-1">Total Posts</h3>
         <div className="flex items-end">
           <div className="text-4xl font-bold">{sentimentStats?.total_count || 780}</div>
-          <div className="text-sm text-green-500 ml-2 pb-1">+234%</div>
+          <div className="text-sm text-green-500 ml-2 pb-1">{postsLast24Hours}</div>
         </div>
-        <p className="text-xs text-gray-400 mt-2">Compared to previous 3-day period</p>
+        <p className="text-xs text-gray-400 mt-2">in the past 24 hours</p>
       </div>
       
       <div className="bg-[#24262b] rounded-xl p-6 shadow-lg">

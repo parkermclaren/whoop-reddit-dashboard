@@ -161,81 +161,123 @@ async function processImages(imageUrls: string[]): Promise<{ imageData: string[]
  * Analyze a Reddit post using GPT-4o mini
  */
 export async function analyzeRedditPost(postId: string): Promise<boolean> {
-  // Fetch the post and related comments from Supabase
-  const { data: post, error: postError } = await supabase
-    .from('reddit_posts')
-    .select('*')
-    .eq('id', postId)
-    .single();
-  
-  if (postError || !post) {
-    console.error(`Error fetching post ${postId}:`, postError);
-    return false;
-  }
-  
-  const { data: comments, error: commentsError } = await supabase
-    .from('reddit_comments')
-    .select('*')
-    .eq('post_id', postId)
-    .order('score', { ascending: false })
-    .limit(5);
-  
-  if (commentsError) {
-    console.error(`Error fetching comments for post ${postId}:`, commentsError);
-    return false;
-  }
-  
-  // Build content for analysis
-  let contentToAnalyze = `POST TITLE: ${post.title}\n\n`;
-  
-  if (post.body) {
-    contentToAnalyze += `POST BODY: ${post.body}\n\n`;
-  }
-  
-  if (comments && comments.length > 0) {
-    contentToAnalyze += `TOP COMMENTS:\n`;
-    comments.forEach((comment: any, index: number) => {
-      contentToAnalyze += `COMMENT ${index + 1} (Score: ${comment.score}): ${comment.body}\n\n`;
-    });
-  }
-
-  // Process images if any
-  let imageData: string[] = [];
-  let downloadedCount = 0;
-
-  if (post.image_urls && post.image_urls.length > 0) {
-    console.log(`Processing ${post.image_urls.length} images for post ${post.id}...`);
-    const imageResult = await processImages(post.image_urls);
-    imageData = imageResult.imageData;
-    downloadedCount = imageResult.downloadedCount;
-    
-    if (downloadedCount > 0) {
-      contentToAnalyze += `\n[${downloadedCount} IMAGES ATTACHED]\n`;
-    }
-  }
-
-  // Create messages array with image data if available
-  const messages: OpenAI.ChatCompletionMessageParam[] = [
-    { role: "system", content: SYSTEM_PROMPT }
-  ];
-
-  // Add text content
-  if (downloadedCount > 0) {
-    // If we have images, create a multi-modal message with both text and images
-    messages.push({
-      role: "user",
-      content: [
-        { type: "text", text: contentToAnalyze },
-        ...imageData.map(img => ({ type: "image_url", image_url: { url: img } } as OpenAI.ChatCompletionContentPart))
-      ]
-    });
-  } else {
-    // Text only
-    messages.push({ role: "user", content: contentToAnalyze });
-  }
-
-  // Perform analysis with OpenAI
   try {
+    // First, check if this post is already processed
+    const { data: existingPost, error: postCheckError } = await supabase
+      .from('reddit_posts')
+      .select('is_processed')
+      .eq('id', postId)
+      .single();
+    
+    if (postCheckError) {
+      console.error(`Error checking post ${postId}:`, postCheckError);
+      return false;
+    }
+    
+    if (existingPost && existingPost.is_processed) {
+      console.log(`Post ${postId} is already processed, skipping.`);
+      return true; // Return true since it's already processed
+    }
+    
+    // Also check if analysis already exists to prevent duplicates
+    const { data: existingAnalysis, error: analysisCheckError } = await supabase
+      .from('analysis_results')
+      .select('id')
+      .eq('content_id', postId)
+      .eq('content_type', 'post');
+    
+    if (analysisCheckError) {
+      console.error(`Error checking existing analysis for post ${postId}:`, analysisCheckError);
+      // Continue anyway since this is just a precaution
+    } else if (existingAnalysis && existingAnalysis.length > 0) {
+      console.log(`Analysis already exists for post ${postId}, skipping.`);
+      
+      // Still update the post to mark it as processed to prevent future processing attempts
+      await supabase
+        .from('reddit_posts')
+        .update({ 
+          is_processed: true,
+          processed_at: new Date().toISOString()
+        })
+        .eq('id', postId);
+        
+      return true; // Return true since it's already processed
+    }
+  
+    // Fetch the post and related comments from Supabase
+    const { data: post, error: postError } = await supabase
+      .from('reddit_posts')
+      .select('*')
+      .eq('id', postId)
+      .single();
+    
+    if (postError || !post) {
+      console.error(`Error fetching post ${postId}:`, postError);
+      return false;
+    }
+    
+    const { data: comments, error: commentsError } = await supabase
+      .from('reddit_comments')
+      .select('*')
+      .eq('post_id', postId)
+      .order('score', { ascending: false })
+      .limit(5);
+    
+    if (commentsError) {
+      console.error(`Error fetching comments for post ${postId}:`, commentsError);
+      return false;
+    }
+    
+    // Build content for analysis
+    let contentToAnalyze = `POST TITLE: ${post.title}\n\n`;
+    
+    if (post.body) {
+      contentToAnalyze += `POST BODY: ${post.body}\n\n`;
+    }
+    
+    if (comments && comments.length > 0) {
+      contentToAnalyze += `TOP COMMENTS:\n`;
+      comments.forEach((comment: any, index: number) => {
+        contentToAnalyze += `COMMENT ${index + 1} (Score: ${comment.score}): ${comment.body}\n\n`;
+      });
+    }
+
+    // Process images if any
+    let imageData: string[] = [];
+    let downloadedCount = 0;
+
+    if (post.image_urls && post.image_urls.length > 0) {
+      console.log(`Processing ${post.image_urls.length} images for post ${post.id}...`);
+      const imageResult = await processImages(post.image_urls);
+      imageData = imageResult.imageData;
+      downloadedCount = imageResult.downloadedCount;
+      
+      if (downloadedCount > 0) {
+        contentToAnalyze += `\n[${downloadedCount} IMAGES ATTACHED]\n`;
+      }
+    }
+
+    // Create messages array with image data if available
+    const messages: OpenAI.ChatCompletionMessageParam[] = [
+      { role: "system", content: SYSTEM_PROMPT }
+    ];
+
+    // Add text content
+    if (downloadedCount > 0) {
+      // If we have images, create a multi-modal message with both text and images
+      messages.push({
+        role: "user",
+        content: [
+          { type: "text", text: contentToAnalyze },
+          ...imageData.map(img => ({ type: "image_url", image_url: { url: img } } as OpenAI.ChatCompletionContentPart))
+        ]
+      });
+    } else {
+      // Text only
+      messages.push({ role: "user", content: contentToAnalyze });
+    }
+
+    // Perform analysis with OpenAI
     const response = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: messages,
@@ -283,7 +325,65 @@ export async function analyzeRedditPost(postId: string): Promise<boolean> {
       return false;
     }
   } catch (error) {
-    console.error(`Error analyzing post ${post.id}:`, error);
+    console.error(`Error analyzing post ${postId}:`, error);
+    return false;
+  }
+}
+
+/**
+ * Analyze all unprocessed Reddit posts in the database
+ */
+export async function analyzeUnprocessedPosts(): Promise<boolean> {
+  try {
+    console.log('Fetching unprocessed posts...');
+    
+    // Get all unprocessed posts
+    const { data: unprocessedPosts, error: fetchError } = await supabase
+      .from('reddit_posts')
+      .select('id, title')
+      .eq('is_processed', false)
+      .order('created_at', { ascending: false })
+      .limit(50); // Process in batches
+    
+    if (fetchError) {
+      console.error('Error fetching unprocessed posts:', fetchError);
+      return false;
+    }
+    
+    if (!unprocessedPosts || unprocessedPosts.length === 0) {
+      console.log('No unprocessed posts found.');
+      return true;
+    }
+    
+    console.log(`Found ${unprocessedPosts.length} unprocessed posts to analyze.`);
+    
+    // Process each post
+    let successCount = 0;
+    let failedCount = 0;
+    
+    for (const post of unprocessedPosts) {
+      try {
+        console.log(`Analyzing post: ${post.id} - ${post.title.substring(0, 40)}...`);
+        const success = await analyzeRedditPost(post.id);
+        
+        if (success) {
+          successCount++;
+        } else {
+          failedCount++;
+        }
+        
+        // Add small delay to avoid rate limits
+        await new Promise(resolve => setTimeout(resolve, 500));
+      } catch (error) {
+        console.error(`Error analyzing post ${post.id}:`, error);
+        failedCount++;
+      }
+    }
+    
+    console.log(`Analysis complete! Successful: ${successCount}, Failed: ${failedCount}`);
+    return true;
+  } catch (error) {
+    console.error('Error in analyzeUnprocessedPosts:', error);
     return false;
   }
 }
