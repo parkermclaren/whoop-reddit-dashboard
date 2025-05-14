@@ -5,7 +5,7 @@ import { runContinuousPipeline } from '../../../scripts/continuous-pipeline';
 const CRON_SECRET = process.env.CRON_SECRET;
 
 // Configure the maximum duration for this API route
-export const maxDuration = 300; // 5 minutes maximum (adjust based on your Vercel plan)
+export const maxDuration = 60; // 60 seconds maximum (Vercel hobby plan limit)
 
 // Add global type declaration for pipelineStartTime
 declare global {
@@ -13,8 +13,8 @@ declare global {
 }
 
 /**
- * This API route runs the continuous data pipeline
- * It is triggered by Vercel Cron Job (hourly)
+ * This API route acts as a master scheduler that calls each specialized endpoint
+ * It is triggered by cron-job.org
  * 
  * To secure this endpoint, we check for:
  * 1. The x-vercel-cron header (set by Vercel for cron jobs)
@@ -22,7 +22,7 @@ declare global {
  */
 export async function GET(request: Request) {
   const startTime = Date.now();
-  console.log('CRON API triggered at:', new Date().toISOString());
+  console.log('CRON API master triggered at:', new Date().toISOString());
   
   try {
     const { searchParams } = new URL(request.url);
@@ -40,60 +40,42 @@ export async function GET(request: Request) {
       );
     }
     
-    console.log('Starting scheduled Reddit data pipeline...');
+    console.log('Starting Reddit dashboard master scheduler...');
     
-    // Set a global timeout flag to help the pipeline monitor runtime
-    global.pipelineStartTime = Date.now();
+    // Simply return instructions on how to set up the cron jobs
+    // Each specialized endpoint will be called directly by cron-job.org
     
-    // Run the pipeline with timeout protection
-    const timeoutPromise = new Promise<boolean>((_, reject) => {
-      const timeoutSeconds = 280; // 4m40s (to ensure we stay under the 5m limit)
-      setTimeout(() => {
-        reject(new Error(`Pipeline execution timed out after ${timeoutSeconds} seconds`));
-      }, timeoutSeconds * 1000);
-    });
-    
-    // Race between pipeline completion and timeout
-    const success = await Promise.race([
-      runContinuousPipeline(),
-      timeoutPromise
-    ]).catch(error => {
-      console.error('Pipeline execution error:', error.message);
-      return false;
-    });
-    
-    const processingTime = ((Date.now() - startTime) / 1000).toFixed(2);
-    console.log(`Pipeline completed in ${processingTime} seconds`);
-    
-    if (success) {
-      return NextResponse.json(
-        { 
-          success: true, 
-          message: 'Reddit data pipeline completed successfully',
-          processing_time_seconds: Number(processingTime),
-          timestamp: new Date().toISOString()
-        }
-      );
-    } else {
-      return NextResponse.json(
-        { 
-          success: false, 
-          message: 'Reddit data pipeline encountered errors or timed out',
-          processing_time_seconds: Number(processingTime),
-          timestamp: new Date().toISOString()
-        },
-        { status: 500 }
-      );
-    }
+    return NextResponse.json(
+      { 
+        success: true, 
+        message: 'WHOOP Reddit Dashboard Master Scheduler',
+        instructions: 'Set up separate cron-job.org jobs for each of these endpoints:',
+        endpoints: [
+          '/api/cron/collect?secret=[YOUR_SECRET]',
+          '/api/cron/analyze?secret=[YOUR_SECRET]',
+          '/api/cron/extended?secret=[YOUR_SECRET]',
+          '/api/cron/product?secret=[YOUR_SECRET]',
+          '/api/cron/embeddings?secret=[YOUR_SECRET]',
+          '/api/cron/metrics?secret=[YOUR_SECRET]'
+        ],
+        recommended_schedule: [
+          { endpoint: 'collect', schedule: 'Every 2 hours' },
+          { endpoint: 'analyze', schedule: 'Every 2 hours, 15 minutes after collect' },
+          { endpoint: 'extended', schedule: 'Every 6 hours' },
+          { endpoint: 'product', schedule: 'Every 6 hours, 15 minutes after extended' },
+          { endpoint: 'embeddings', schedule: 'Every 12 hours' },
+          { endpoint: 'metrics', schedule: 'Every 6 hours' }
+        ],
+        timestamp: new Date().toISOString()
+      }
+    );
   } catch (error: any) {
-    const processingTime = ((Date.now() - startTime) / 1000).toFixed(2);
-    console.error(`Error in cron API route (after ${processingTime}s):`, error);
+    console.error(`Error in master cron API:`, error);
     
     return NextResponse.json(
       { 
         success: false, 
         error: error.message || 'Unknown error',
-        processing_time_seconds: Number(processingTime),
         timestamp: new Date().toISOString()
       },
       { status: 500 }
