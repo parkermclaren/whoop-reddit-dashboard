@@ -6,19 +6,46 @@
     "dev": "next dev --turbopack",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test-post": "node src/scripts/run-test-post.js",
+    "pipeline": "npx ts-node src/scripts/run-pipeline.ts",
+    "extended-analysis": "npx ts-node src/scripts/run-extended-analysis.ts",
+    "count-posts": "npx ts-node src/scripts/count-posts.ts",
+    "generate-faqs": "npx ts-node src/scripts/generate-faqs.ts",
+    "generate-embeddings": "npx ts-node src/scripts/generate-embeddings.ts",
+    "generate-embeddings:offline": "npx ts-node src/scripts/generate-embeddings.ts --offline",
+    "cluster-cancellations": "npx ts-node src/scripts/cluster-cancellation-reasons.ts"
   },
   "dependencies": {
+    "@heroicons/react": "^2.2.0",
+    "@supabase/supabase-js": "^2.49.4",
+    "@types/d3": "^7.4.3",
+    "@types/d3-cloud": "^1.2.9",
+    "axios": "^1.9.0",
+    "chart.js": "^4.4.9",
+    "d3": "^7.9.0",
+    "d3-cloud": "^1.2.7",
+    "date-fns": "^4.1.0",
+    "dotenv": "^16.5.0",
+    "limiter": "^3.0.0",
+    "lucide-react": "^0.510.0",
+    "next": "15.3.2",
+    "openai": "^4.98.0",
     "react": "^19.0.0",
+    "react-chartjs-2": "^5.3.0",
     "react-dom": "^19.0.0",
-    "next": "15.3.2"
+    "react-icons": "^5.5.0",
+    "react-tagcloud": "^2.3.3",
+    "snoowrap": "^1.23.0"
   },
   "devDependencies": {
-    "typescript": "^5",
+    "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "@tailwindcss/postcss": "^4",
-    "tailwindcss": "^4"
+    "@types/react-tagcloud": "^2.3.2",
+    "tailwindcss": "^4",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.8.3"
   }
 }
