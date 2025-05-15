@@ -36,6 +36,94 @@ type ThemeData = {
   negative_percent: number;
 }
 
+// Main theme order and mapping of terms to themes
+const MAIN_THEME_ORDER = [
+  'Subscription Pricing',
+  'Hardware Design',
+  'New Health Metrics',
+  'App Integration',
+  'Battery Life'
+];
+
+// Theme mapping to categorize various terms from the analysis_results table
+const THEME_MAPPING: Record<string, string> = {
+  // Subscription Pricing related terms
+  'pricing': 'Subscription Pricing',
+  'membership model': 'Subscription Pricing',
+  'membership pricing': 'Subscription Pricing',
+  'membership': 'Subscription Pricing',
+  'subscription model': 'Subscription Pricing',
+  'membership policy': 'Subscription Pricing',
+  'membership upgrade': 'Subscription Pricing',
+  'upgrade fees': 'Subscription Pricing',
+  'membership changes': 'Subscription Pricing',
+  'membership benefits': 'Subscription Pricing',
+  'membership cancellation': 'Subscription Pricing',
+  'membership features': 'Subscription Pricing',
+  'membership tiers': 'Subscription Pricing',
+  'membership issues': 'Subscription Pricing',
+  'membership extension': 'Subscription Pricing',
+  'membership options': 'Subscription Pricing',
+  'cost': 'Subscription Pricing',
+  'free upgrade': 'Subscription Pricing',
+  
+  // Hardware Design related terms
+  'hardware quality': 'Hardware Design',
+  'hardware updates': 'Hardware Design',
+  'hardware compatibility': 'Hardware Design',
+  'upgrade process': 'Hardware Design',
+  'accessories': 'Hardware Design',
+  'hardware upgrades': 'Hardware Design',
+  'hardware upgrade': 'Hardware Design',
+  'WHOOP 5.0': 'Hardware Design',
+  'hardware': 'Hardware Design',
+  'compatibility': 'Hardware Design',
+  'hardware comparison': 'Hardware Design',
+  'device upgrade': 'Hardware Design',
+  'hardware features': 'Hardware Design',
+  'upgrade': 'Hardware Design',
+  'design': 'Hardware Design',
+  'hardware update': 'Hardware Design',
+  'device functionality': 'Hardware Design',
+  'wearability': 'Hardware Design',
+  'wearable technology': 'Hardware Design',
+  'WHOOP MG': 'Hardware Design',
+  
+  // New Health Metrics related terms
+  'health metrics': 'New Health Metrics',
+  'sleep tracking': 'New Health Metrics',
+  'health tracking': 'New Health Metrics',
+  'fitness tracking': 'New Health Metrics',
+  'recovery': 'New Health Metrics',
+  'heart rate accuracy': 'New Health Metrics',
+  'health monitoring': 'New Health Metrics',
+  'data accuracy': 'New Health Metrics',
+  'medical features': 'New Health Metrics',
+  'health features': 'New Health Metrics',
+  'heart rate tracking': 'New Health Metrics',
+  'sensor accuracy': 'New Health Metrics',
+  'heart rate monitoring': 'New Health Metrics',
+  'blood pressure': 'New Health Metrics',
+  'Healthspan': 'New Health Metrics',
+  'calibration': 'New Health Metrics',
+  'blood pressure monitoring': 'New Health Metrics',
+  'accuracy': 'New Health Metrics',
+  
+  // App Integration related terms
+  'app functionality': 'App Integration',
+  'user interface': 'App Integration',
+  'app performance': 'App Integration',
+  'integration': 'App Integration',
+  'user experience': 'App Integration',
+  'feature availability': 'App Integration',
+  'features': 'App Integration',
+  'new features': 'App Integration',
+  'feature comparison': 'App Integration',
+  
+  // Battery Life related terms
+  'battery life': 'Battery Life'
+};
+
 export default function ThemeBreakdown() {
   const [themeData, setThemeData] = useState<ThemeData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -47,62 +135,96 @@ export default function ThemeBreakdown() {
       try {
         setLoading(true);
         
-        // Debug environment variables
-        console.log("ThemeBreakdown - Environment variables check:");
-        console.log("NEXT_PUBLIC_SUPABASE_URL:", process.env.NEXT_PUBLIC_SUPABASE_URL);
-        console.log("NEXT_PUBLIC_SUPABASE_ANON_KEY:", 
-          process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ? 
-          "Exists (first 10 chars): " + process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY.substring(0, 10) + "..." : 
-          "Missing"
-        );
-        
-        if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
-          throw new Error("Supabase environment variables are missing");
-        }
-        
-        console.log("ThemeBreakdown - Creating Supabase client...");
-        let supabase;
-        try {
-          supabase = createClient();
-          console.log("ThemeBreakdown - Supabase client created successfully");
-        } catch (clientErr) {
-          console.error("ThemeBreakdown - Error creating Supabase client:", clientErr);
-          throw new Error(`Failed to create Supabase client: ${clientErr instanceof Error ? clientErr.message : String(clientErr)}`);
-        }
+        const supabase = createClient();
 
-        console.log("ThemeBreakdown - Fetching theme sentiment stats");
-        let queryResult;
-        try {
-          queryResult = await supabase
-            .from('theme_sentiment_stats')
-            .select('*')
-            .not('grouped_theme', 'eq', 'Other')
-            .order('total_count', { ascending: false })
-            .limit(5);
+        // Get all sentiment analysis results for posts
+        const { data: analysisResults, error: analysisError } = await supabase
+          .from('analysis_results')
+          .select('themes, sentiment')
+          .eq('content_type', 'post')
+          .not('themes', 'is', null);
+        
+        if (analysisError) {
+          console.error('Error fetching analysis results:', analysisError);
+          throw analysisError;
+        }
+        
+        if (!analysisResults || analysisResults.length === 0) {
+          setError('No analysis results found with theme data');
+          setLoading(false);
+          return;
+        }
+        
+        // Initialize counters for main themes
+        const themeCounters: Record<string, {
+          positive: number;
+          neutral: number;
+          negative: number;
+          total: number;
+        }> = {};
+        
+        MAIN_THEME_ORDER.forEach(theme => {
+          themeCounters[theme] = {
+            positive: 0,
+            neutral: 0,
+            negative: 0,
+            total: 0
+          };
+        });
+        
+        // Process each analysis result
+        analysisResults.forEach(result => {
+          if (!result.themes || result.themes.length === 0) return;
+          
+          // Get the sentiment of this result
+          const sentiment = result.sentiment || 'neutral';
+          
+          // Find all mapped themes in this result
+          const matchedThemes = new Set<string>();
+          
+          result.themes.forEach((theme: string) => {
+            const mappedTheme = THEME_MAPPING[theme.toLowerCase()];
+            if (mappedTheme) {
+              matchedThemes.add(mappedTheme);
+            }
+          });
+          
+          // Increment counters for each matched theme
+          matchedThemes.forEach(theme => {
+            themeCounters[theme].total += 1;
             
-          console.log("ThemeBreakdown - Theme stats query result:", queryResult);
-          // Store the query result for debugging purposes
-          setDebugInfo(JSON.stringify(queryResult, null, 2));
-        } catch (queryErr) {
-          console.error("ThemeBreakdown - Error querying theme_sentiment_stats:", queryErr);
-          throw new Error(`Error querying theme_sentiment_stats: ${queryErr instanceof Error ? queryErr.message : String(queryErr)}`);
-        }
+            if (sentiment === 'positive') {
+              themeCounters[theme].positive += 1;
+            } else if (sentiment === 'negative') {
+              themeCounters[theme].negative += 1;
+            } else {
+              themeCounters[theme].neutral += 1;
+            }
+          });
+        });
         
-        if (queryResult.error) {
-          console.error("ThemeBreakdown - Supabase error returned:", queryResult.error);
-          throw new Error(`Supabase error when fetching theme data: ${queryResult.error.message}`);
-        }
+        // Convert counters to ThemeData array
+        const calculatedThemeData: ThemeData[] = MAIN_THEME_ORDER.map(theme => {
+          const counts = themeCounters[theme];
+          return {
+            grouped_theme: theme,
+            positive_count: counts.positive,
+            neutral_count: counts.neutral,
+            negative_count: counts.negative,
+            total_count: counts.total,
+            positive_percent: counts.total > 0 ? Math.round((counts.positive / counts.total) * 100) : 0,
+            neutral_percent: counts.total > 0 ? Math.round((counts.neutral / counts.total) * 100) : 0,
+            negative_percent: counts.total > 0 ? Math.round((counts.negative / counts.total) * 100) : 0
+          };
+        });
         
-        if (!queryResult.data || queryResult.data.length === 0) {
-          console.log("ThemeBreakdown - No theme data found");
-          setThemeData([]);
-        } else {
-          setThemeData(queryResult.data);
-        }
+        // Set the theme data
+        setThemeData(calculatedThemeData);
+        setLoading(false);
+        
       } catch (err) {
-        console.error('ThemeBreakdown - Error fetching theme data:', err);
-        setError(err instanceof Error ? err.message : JSON.stringify(err));
-      } finally {
+        console.error('Error in theme data processing:', err);
+        setError(err instanceof Error ? err.message : String(err));
         setLoading(false);
       }
     };

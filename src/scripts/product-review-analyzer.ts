@@ -162,7 +162,8 @@ export async function analyzeProductReviewForPost(postId: string): Promise<boole
         has_received_product: productReviewAnalysis.has_received_product || false,
         product_received: productReviewAnalysis.product_received || null,
         product_satisfaction: productReviewAnalysis.product_satisfaction || null,
-        updated_at: new Date().toISOString()
+        updated_at: new Date().toISOString(),
+        product_analysis_at: new Date().toISOString()
       })
       .eq('id', analysisResult.id);
     

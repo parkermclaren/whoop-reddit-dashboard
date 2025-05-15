@@ -142,8 +142,8 @@ export async function runExtendedAnalysisStep(): Promise<boolean> {
       .from('analysis_results')
       .select('id, content_id')
       .eq('content_type', 'post')
-      .is('competitor_mentions', null) // This field is populated by extended analysis
-      .order('created_at', { ascending: false })
+      .is('extended_analysis_at', null) // Use new timestamp column
+      .order('inserted_at', { ascending: false })
       .limit(15); // Process smaller batch
     
     if (fetchError) {
@@ -173,6 +173,12 @@ export async function runExtendedAnalysisStep(): Promise<boolean> {
         const success = await extendAnalysisForPost(post.content_id);
         
         if (success) {
+          // Update the timestamp when analysis was performed
+          await supabase
+            .from('analysis_results')
+            .update({ extended_analysis_at: new Date().toISOString() })
+            .eq('id', post.id);
+            
           extendedSuccessCount++;
         } else {
           extendedFailedCount++;
@@ -204,68 +210,15 @@ export async function runProductAnalysisStep(): Promise<boolean> {
   try {
     // Find posts that have basic analysis but need product review analysis
     const { data: postsNeedingProductAnalysis, error: fetchError } = await supabase
-      .from('product_reviews')
-      .select('id, post_id')
-      .is('reviewed', false)
-      .order('created_at', { ascending: false })
+      .from('analysis_results')
+      .select('id, content_id')
+      .eq('content_type', 'post')
+      .is('product_analysis_at', null) // Use new timestamp column
+      .order('inserted_at', { ascending: false })
       .limit(15);
     
     if (fetchError) {
       console.error('Error fetching posts needing product review analysis:', fetchError);
-      
-      // If table doesn't exist, check for analyzed posts without product reviews
-      if (fetchError.code === '42P01') { // Table doesn't exist
-        const { data: analyzedPosts, error: analysisError } = await supabase
-          .from('analysis_results')
-          .select('id, content_id')
-          .eq('content_type', 'post')
-          .is('product_related', null) // Field you add for product analysis
-          .order('created_at', { ascending: false })
-          .limit(15);
-          
-        if (analysisError) {
-          console.error('Error fetching analyzed posts:', analysisError);
-          return false;
-        }
-        
-        if (!analyzedPosts || analyzedPosts.length === 0) {
-          console.log('No posts need product review analysis.');
-          return true;
-        }
-        
-        console.log(`Found ${analyzedPosts.length} posts that need product review analysis.`);
-        
-        // Run product analysis on each post
-        let productSuccessCount = 0;
-        let productFailedCount = 0;
-        
-        for (const post of analyzedPosts) {
-          if (isApproachingTimeout()) {
-            console.log(`⏱️ Timeout risk detected. Processed ${productSuccessCount} product reviews before stopping.`);
-            break;
-          }
-          
-          try {
-            const success = await analyzeProductReviewForPost(post.content_id);
-            
-            if (success) {
-              productSuccessCount++;
-            } else {
-              productFailedCount++;
-            }
-            
-            // Add delay to avoid rate limits
-            await new Promise(resolve => setTimeout(resolve, 500));
-          } catch (error) {
-            console.error(`Error running product review analysis for post ${post.content_id}:`, error);
-            productFailedCount++;
-          }
-        }
-        
-        console.log(`Product review analysis complete! Success: ${productSuccessCount}, Failed: ${productFailedCount}`);
-        return productSuccessCount > 0 || analyzedPosts.length === 0;
-      }
-      
       return false;
     }
     
@@ -276,9 +229,41 @@ export async function runProductAnalysisStep(): Promise<boolean> {
     
     console.log(`Found ${postsNeedingProductAnalysis.length} posts that need product review analysis.`);
     
-    // Process logic here
-    console.log('Product reviews analysis completed');
-    return true;
+    // Run product analysis on each post
+    let productSuccessCount = 0;
+    let productFailedCount = 0;
+    
+    for (const post of postsNeedingProductAnalysis) {
+      if (isApproachingTimeout()) {
+        console.log(`⏱️ Timeout risk detected. Processed ${productSuccessCount} product reviews before stopping.`);
+        break;
+      }
+      
+      try {
+        const success = await analyzeProductReviewForPost(post.content_id);
+        
+        if (success) {
+          // Update the timestamp when analysis was performed
+          await supabase
+            .from('analysis_results')
+            .update({ product_analysis_at: new Date().toISOString() })
+            .eq('id', post.id);
+            
+          productSuccessCount++;
+        } else {
+          productFailedCount++;
+        }
+        
+        // Add delay to avoid rate limits
+        await new Promise(resolve => setTimeout(resolve, 500));
+      } catch (error) {
+        console.error(`Error running product review analysis for post ${post.content_id}:`, error);
+        productFailedCount++;
+      }
+    }
+    
+    console.log(`Product review analysis complete! Success: ${productSuccessCount}, Failed: ${productFailedCount}`);
+    return productSuccessCount > 0 || postsNeedingProductAnalysis.length === 0;
   } catch (error) {
     console.error('❌ Error in product review analysis step:', error);
     return false;
@@ -295,28 +280,32 @@ export async function runEmbeddingsStep(): Promise<boolean> {
   try {
     console.log('\n🧠 Processing question embeddings from newly analyzed posts...');
     
-    // Check for new questions without embeddings
-    const { data: questionsWithoutEmbeddings, error: fetchError } = await supabase
-      .from('questions')
-      .select('id')
-      .is('embedding', null)
-      .order('created_at', { ascending: false });
+    // Get posts with questions that need embeddings by checking analysis_results
+    const { data: postsWithQuestions, error: fetchError } = await supabase
+      .from('analysis_results')
+      .select('content_id, user_questions')
+      .eq('content_type', 'post')
+      .not('user_questions', 'is', null)
+      .not('user_questions', 'eq', '[]')
+      .order('inserted_at', { ascending: false })
+      .limit(15);
       
     if (fetchError) {
-      console.error('Error fetching questions needing embeddings:', fetchError);
+      console.error('Error fetching posts with questions:', fetchError);
       return false;
     }
     
-    if (!questionsWithoutEmbeddings || questionsWithoutEmbeddings.length === 0) {
+    if (!postsWithQuestions || postsWithQuestions.length === 0) {
       console.log('No new questions to process for embeddings.');
       return true;
     }
     
-    console.log(`Found ${questionsWithoutEmbeddings.length} questions needing embeddings.`);
+    console.log(`Found ${postsWithQuestions.length} posts with questions that may need embeddings.`);
     
     try {
-      // Process up to 50 questions
-      await processNewQuestions(Math.min(questionsWithoutEmbeddings.length, 50));
+      // Process questions from these posts
+      const postIds = postsWithQuestions.map(p => p.content_id);
+      await processNewQuestions(Math.min(postIds.length, 15));
       console.log('Question embeddings processing completed successfully.');
       return true;
     } catch (error) {

@@ -88,6 +88,49 @@ async function generateEmbedding(question: string): Promise<number[]> {
 }
 
 /**
+ * Get all posts with questions that need embedding
+ */
+async function getPostsForEmbedding(limit: number = 100): Promise<string[]> {
+  try {
+    // Get all posts with analysis results that have questions
+    const { data: analysisResultsWithQuestions, error } = await supabase
+      .from('analysis_results')
+      .select('content_id, user_questions')
+      .eq('content_type', 'post')
+      .not('user_questions', 'is', null)
+      .not('user_questions', 'eq', '{}')
+      .order('inserted_at', { ascending: false })
+      .limit(limit);  // Increased limit to process more posts
+    
+    if (error) {
+      console.error("Error fetching posts with questions:", error);
+      return [];
+    }
+    
+    if (!analysisResultsWithQuestions || analysisResultsWithQuestions.length === 0) {
+      console.log("No posts with questions found");
+      return [];
+    }
+    
+    // Client-side filtering to ensure we have non-empty questions
+    const postsWithQuestions = analysisResultsWithQuestions
+      .filter(post => 
+        post.user_questions && 
+        Array.isArray(post.user_questions) && 
+        post.user_questions.length > 0
+      )
+      .map(post => post.content_id);
+    
+    console.log(`Found ${postsWithQuestions.length} posts with questions out of ${analysisResultsWithQuestions.length} total posts`);
+    
+    return postsWithQuestions;
+  } catch (error) {
+    console.error("Error getting posts with questions:", error);
+    return [];
+  }
+}
+
+/**
  * Find the most similar cluster for a question
  */
 async function findBestCluster(embedding: number[]): Promise<string | null> {
@@ -338,39 +381,6 @@ async function processPostQuestions(postId: string): Promise<{added: number, ski
 }
 
 /**
- * Get recent posts that need question embedding
- */
-async function getRecentPostsForEmbedding(limit: number = 10): Promise<string[]> {
-  try {
-    // Get posts with analysis results that have questions
-    const { data, error } = await supabase
-      .from('analysis_results')
-      .select('content_id, user_questions')
-      .eq('content_type', 'post')
-      .not('user_questions', 'is', null)
-      .not('user_questions', 'eq', '[]')
-      .order('inserted_at', { ascending: false })
-      .limit(limit);
-    
-    if (error) {
-      console.error("Error fetching recent posts:", error);
-      return [];
-    }
-    
-    if (!data || data.length === 0) {
-      console.log("No recent posts with questions found");
-      return [];
-    }
-    
-    // Extract post IDs
-    return data.map(result => result.content_id);
-  } catch (error) {
-    console.error("Error getting recent posts:", error);
-    return [];
-  }
-}
-
-/**
  * Create necessary functions in the database
  */
 async function setupDatabaseFunctions(): Promise<boolean> {
@@ -403,6 +413,25 @@ async function setupDatabaseFunctions(): Promise<boolean> {
         RETURN count_result;
       END;
       $$;
+      
+      CREATE OR REPLACE FUNCTION get_posts_with_questions(post_limit integer)
+      RETURNS TABLE (
+        content_id uuid,
+        user_questions text[]
+      )
+      LANGUAGE plpgsql
+      AS $$
+      BEGIN
+        RETURN QUERY
+        SELECT ar.content_id, ar.user_questions
+        FROM analysis_results ar
+        WHERE ar.content_type = 'post'
+          AND ar.user_questions IS NOT NULL
+          AND ar.user_questions <> '{}'
+        ORDER BY ar.inserted_at DESC
+        LIMIT post_limit;
+      END;
+      $$;
       `
     });
     
@@ -421,15 +450,15 @@ async function setupDatabaseFunctions(): Promise<boolean> {
 /**
  * Main function to process new questions
  */
-async function processNewQuestions(postLimit: number = 20): Promise<void> {
+async function processNewQuestions(postLimit: number = 100): Promise<void> {
   console.log("Starting to process new questions...");
   
   try {
     // Setup database functions
     await setupDatabaseFunctions();
     
-    // Get recent posts
-    const postIds = await getRecentPostsForEmbedding(postLimit);
+    // Get all posts with questions
+    const postIds = await getPostsForEmbedding(postLimit);
     
     if (postIds.length === 0) {
       console.log("No posts to process");
@@ -464,7 +493,7 @@ async function processNewQuestions(postLimit: number = 20): Promise<void> {
 if (require.main === module) {
   // Get command line args
   const args = process.argv.slice(2);
-  const postLimit = parseInt(args[0]) || 20;
+  const postLimit = parseInt(args[0]) || 100;
   
   processNewQuestions(postLimit)
     .then(() => {

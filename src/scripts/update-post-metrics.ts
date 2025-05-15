@@ -64,29 +64,37 @@ export async function updatePostMetrics(batchSize = 50): Promise<boolean> {
     
     // Current hour and day of week
     const currentHour = now.getHours();
+    const currentMinute = now.getMinutes();
     const dayOfWeek = now.getDay(); // 0 = Sunday, 1 = Monday, etc.
     
     let query = supabase.from('reddit_posts').select('id, reddit_id, created_at');
     let updateType = '';
     
-    // Logic for which posts to update based on time
-    if (currentHour % 6 === 0) {
-      // Every 6 hours: Update recent posts (0-3 days old)
+    // Check if we're within a window of the hour that is divisible by 6
+    // For example, if scheduled at X:50, it will match for 23:50, which is close to 00:00
+    const hourWindow = 1; // Allow 1 hour before or after the target time
+    const isNearDivisibleBySix = (currentHour % 6 <= hourWindow) || ((currentHour + hourWindow) % 6 === 0);
+    const isNearMidnight = (currentHour >= 23) || (currentHour <= 1);
+    
+    // Logic for which posts to update based on time - with more forgiving time windows
+    if (isNearDivisibleBySix) {
+      // Near hours divisible by 6: Update recent posts (0-3 days old)
       query = query.gte('created_at', threeDaysAgo.toISOString());
       updateType = 'recent posts (0-3 days old)';
-    } else if (currentHour === 0) {
-      // Once daily at midnight: Update mid-age posts (4-7 days old)
+    } else if (isNearMidnight) {
+      // Around midnight: Update mid-age posts (4-7 days old)
       query = query.lt('created_at', threeDaysAgo.toISOString())
                    .gte('created_at', sevenDaysAgo.toISOString());
       updateType = 'mid-age posts (4-7 days old)';
-    } else if (dayOfWeek === 0 && currentHour === 0) {
-      // Once weekly on Sunday at midnight: Update older posts (>7 days old)
+    } else if (dayOfWeek === 0 && isNearMidnight) {
+      // Around midnight on Sunday: Update older posts (>7 days old)
       query = query.lt('created_at', sevenDaysAgo.toISOString());
       updateType = 'older posts (>7 days old)';
     } else {
-      // No updates needed in this time slot
-      console.log('No posts need updating in this time slot');
-      return true;
+      // For testing purposes, always update at least some posts each time
+      console.log('No posts scheduled for updating in this time window, but will update 5 recent posts anyway');
+      query = query.gte('created_at', threeDaysAgo.toISOString()).limit(5);
+      updateType = 'sample of recent posts (for testing)';
     }
     
     // Execute the query

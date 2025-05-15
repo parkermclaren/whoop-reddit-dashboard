@@ -261,7 +261,7 @@ export default function FeatureAspectCloud() {
     // Adjust bubble sizes to fit container
     const radiusScale = d3.scaleSqrt()
       .domain([minValue, maxValue])
-      .range([15, 55]); // Adjusted for better fit
+      .range([15, 50]); // Adjusted for better fit - made slightly smaller
     
     // Create SVG with adjusted padding
     const svg = d3.select(svgRef.current)
@@ -273,10 +273,10 @@ export default function FeatureAspectCloud() {
     // Create simulation for force layout
     const simulation = d3.forceSimulation(bubbleData as d3.SimulationNodeDatum[])
       .force('charge', d3.forceManyBody().strength(5))
-      .force('center', d3.forceCenter(width / 2, height / 2))
+      .force('center', d3.forceCenter(width / 2, height / 2 - 15))
       .force('collision', d3.forceCollide().radius((d: any) => radiusScale(d.value) + 1))
       .force('x', d3.forceX(width / 2).strength(0.07))
-      .force('y', d3.forceY(height / 2).strength(0.07));
+      .force('y', d3.forceY(height / 2 - 15).strength(0.07));
     
     // Create nodes
     const node = svg.selectAll('.node')

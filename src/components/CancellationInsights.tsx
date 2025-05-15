@@ -27,24 +27,45 @@ export default function CancellationInsights() {
       try {
         const supabase = createClient();
         
-        // Get total posts count and cancellation mention count
-        const { data, error } = await supabase
+        // Get total posts count and cancellation mention count (Refactored to use direct counts)
+        let calculatedCancellationStats: CancellationStats | null = null;
+
+        // Get total analyzed posts count
+        const { count: totalAnalyzedCount, error: totalError } = await supabase
           .from('analysis_results')
-          .select('cancellation_mention, content_id')
-          .eq('content_type', 'post');
+          .select('*', { count: 'exact', head: true })
+          .eq('content_type', 'post')
+          .not('extended_analysis_at', 'is', null);
+
+        if (totalError) throw totalError;
+
+        // Get cancellation mention count among analyzed posts
+        const { count: cancellationMentionTrueCount, error: cancellationError } = await supabase
+          .from('analysis_results')
+          .select('*', { count: 'exact', head: true })
+          .eq('content_type', 'post')
+          .not('extended_analysis_at', 'is', null)
+          .eq('cancellation_mention', true);
+
+        if (cancellationError) throw cancellationError;
         
-        if (error) throw error;
-        
-        if (data && data.length > 0) {
-          const total = data.length;
-          const cancellationMentions = data.filter(item => item.cancellation_mention).length;
-          
-          setCancellationStats({
-            cancellation_count: cancellationMentions,
+        const total = totalAnalyzedCount === null ? 0 : totalAnalyzedCount;
+        const cancellationMentionsCount = cancellationMentionTrueCount === null ? 0 : cancellationMentionTrueCount;
+
+        if (total > 0) {
+          calculatedCancellationStats = {
+            cancellation_count: cancellationMentionsCount,
             total_count: total,
-            cancellation_percent: parseFloat(((cancellationMentions / total) * 100).toFixed(1))
-          });
+            cancellation_percent: parseFloat(((cancellationMentionsCount / total) * 100).toFixed(1))
+          };
+        } else {
+          calculatedCancellationStats = {
+            cancellation_count: 0,
+            total_count: 0,
+            cancellation_percent: 0
+          };
         }
+        setCancellationStats(calculatedCancellationStats);
         
         // Get cancellation reasons directly from analysis_results, joined with reddit_posts
         const { data: reasonData, error: reasonError } = await supabase
@@ -58,6 +79,7 @@ export default function CancellationInsights() {
           .eq('cancellation_mention', true)
           .not('cancellation_reason', 'is', null)
           .not('cancellation_reason', 'eq', '')
+          .not('extended_analysis_at', 'is', null) // Added for consistency
           .order('sentiment_score', { ascending: true }) // Most negative first
           .limit(50);
         

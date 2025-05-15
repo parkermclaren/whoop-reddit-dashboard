@@ -172,10 +172,14 @@ async function getExtendedAnalysis(content: string): Promise<any> {
  */
 export async function extendAnalysisForPost(postId: string): Promise<boolean> {
   try {
-    // First check if extended analysis already exists
+    // First check if extended analysis already exists using all four criteria:
+    // 1. competitor_mentions is not an empty array
+    // 2. aspects is not an empty array
+    // 3. cancellation_mention is not FALSE
+    // 4. cancellation_reason is not NULL
     const { data: existingAnalysis, error: checkError } = await supabase
       .from('analysis_results')
-      .select('competitor_mentions')
+      .select('competitor_mentions, aspects, cancellation_mention, cancellation_reason')
       .eq('content_id', postId)
       .eq('content_type', 'post')
       .single();
@@ -183,7 +187,16 @@ export async function extendAnalysisForPost(postId: string): Promise<boolean> {
     if (checkError) {
       console.error(`Error checking existing extended analysis for post ${postId}:`, checkError);
       // Continue anyway as this is a safety check
-    } else if (existingAnalysis && existingAnalysis.competitor_mentions && existingAnalysis.competitor_mentions.length > 0) {
+    } else if (
+      existingAnalysis && 
+      // Check if any of these conditions is true, meaning extended analysis has been run
+      (
+        (existingAnalysis.competitor_mentions && existingAnalysis.competitor_mentions.length > 0) ||
+        (existingAnalysis.aspects && existingAnalysis.aspects.length > 0) ||
+        existingAnalysis.cancellation_mention !== false ||
+        existingAnalysis.cancellation_reason !== null
+      )
+    ) {
       console.log(`Extended analysis already exists for post ${postId}, skipping.`);
       return true; // Return success since it's already analyzed
     }
@@ -237,7 +250,8 @@ export async function extendAnalysisForPost(postId: string): Promise<boolean> {
         cancellation_mention: extendedAnalysis.cancellation_mention || false,
         cancellation_reason: extendedAnalysis.cancellation_reason || null,
         user_questions: extendedAnalysis.user_questions || [],
-        updated_at: new Date().toISOString()
+        updated_at: new Date().toISOString(),
+        extended_analysis_at: new Date().toISOString()
       })
       .eq('id', analysisResult.id);
     

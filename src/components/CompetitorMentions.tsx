@@ -61,7 +61,17 @@ const competitorLogos: Record<string, string> = {
   'Withings': '/logos/Logo_withings_black.png',
   'KardiaMobile': '/logos/alivecor(kardia).png',
   'Pulse': '/logos/pulse. logo.svg',
+  'Eight Sleep': '/logos/Eight-Sleep.webp',
+  'Qardio': '/logos/qlogo.png',
+  'Polar': '/logos/Polar-logo-300x125.png',
 };
+
+// Default text logo component for competitors without an image
+const DefaultTextLogo = ({ name }: { name: string }) => (
+  <div className="w-full h-full flex items-center justify-center text-white font-bold text-lg">
+    {name}
+  </div>
+);
 
 export default function CompetitorMentions() {
   const [competitors, setCompetitors] = useState<CompetitorSummary[]>([]);
@@ -129,7 +139,7 @@ export default function CompetitorMentions() {
                     neutral: sentiment === 'neutral' ? 1 : 0,
                     mixed: sentiment === 'mixed' ? 1 : 0,
                   },
-                  logo: competitorLogos[normalizedName] || '/logos/generic.png',
+                  logo: competitorLogos[normalizedName] || '',
                   quotes: [quote],
                   isLoading: false,
                   originalNames: [originalName]
@@ -248,9 +258,13 @@ export default function CompetitorMentions() {
         <div className="grid grid-cols-3 gap-3">
           {competitors.map((competitor) => {
             // Determine if this logo needs a white background
-            const needsWhiteBackground = ['Amazfit', 'Withings'].includes(competitor.name);
+            const needsWhiteBackground = ['Amazfit', 'Withings', 'Polar', 'Qardio'].includes(competitor.name);
             // Determine if this logo needs larger size
             const needsLargerSize = ['Garmin', 'Samsung Watch', 'Amazfit', 'Pulse', 'Suunto', 'Withings'].includes(competitor.name);
+            // Determine if this logo needs to be in a circle
+            const needsCircle = ['Oura', 'KardiaMobile', 'Eight Sleep'].includes(competitor.name);
+            // Check if logo exists or should use default text
+            const hasLogo = competitorLogos[competitor.name] !== undefined;
             
             return (
               <div 
@@ -260,16 +274,32 @@ export default function CompetitorMentions() {
                 } relative group h-24 flex items-center justify-center`}
                 onClick={() => setSelectedCompetitor(competitor.name)}
               >
-                <div className={`w-full h-full flex items-center justify-center overflow-hidden ${needsWhiteBackground ? 'bg-white rounded-xl' : ''}`}>
-                  <img 
-                    src={competitor.logo} 
-                    alt={`${competitor.name} logo`} 
-                    className={`object-contain ${needsLargerSize ? 'w-20 h-20' : 'w-16 h-16'}`}
-                    onError={(e) => {
-                      const target = e.target as HTMLImageElement;
-                      target.src = '/logos/generic.png'; 
-                    }}
-                  />
+                <div className={`w-full h-full flex items-center justify-center overflow-hidden ${
+                  needsWhiteBackground ? 'bg-white rounded-xl' : ''
+                } ${needsCircle ? 'rounded-full' : ''}`}>
+                  {hasLogo ? (
+                    <img 
+                      src={competitor.logo} 
+                      alt={`${competitor.name} logo`} 
+                      className={`object-contain ${needsLargerSize ? 'w-20 h-20' : 'w-16 h-16'}`}
+                      onError={(e) => {
+                        const target = e.target as HTMLImageElement;
+                        // If image fails to load, fallback to text logo
+                        const parent = target.parentElement;
+                        if (parent) {
+                          parent.innerHTML = '';
+                          parent.appendChild(
+                            Object.assign(document.createElement('div'), {
+                              className: 'w-full h-full flex items-center justify-center text-white font-bold text-lg',
+                              textContent: competitor.name
+                            })
+                          );
+                        }
+                      }}
+                    />
+                  ) : (
+                    <DefaultTextLogo name={competitor.name} />
+                  )}
                 </div>
                 
                 {/* Tooltip on hover */}
@@ -291,20 +321,35 @@ export default function CompetitorMentions() {
           <>
             <div className="flex items-center space-x-3 mb-4 border-b border-gray-700 pb-3">
               <div className={`w-10 h-10 flex items-center justify-center overflow-hidden ${
-                ['Amazfit', 'Withings'].includes(selectedCompetitorData.name) ? 'bg-white rounded-full' : ''
-              }`}>
-                <img 
-                  src={selectedCompetitorData.logo} 
-                  alt={`${selectedCompetitorData.name} logo`} 
-                  className={`object-contain ${
-                    ['Garmin', 'Samsung Watch', 'Amazfit', 'Pulse', 'Suunto', 'Withings'].includes(selectedCompetitorData.name) 
-                      ? 'w-9 h-9' : 'w-8 h-8'
-                  }`}
-                  onError={(e) => {
-                    const target = e.target as HTMLImageElement;
-                    target.src = '/logos/generic.png'; 
-                  }}
-                />
+                ['Amazfit', 'Withings', 'Polar', 'Qardio'].includes(selectedCompetitorData.name) ? 'bg-white rounded-full' : ''
+              } ${['Oura', 'KardiaMobile', 'Eight Sleep'].includes(selectedCompetitorData.name) ? 'rounded-full' : ''}`}>
+                {competitorLogos[selectedCompetitorData.name] ? (
+                  <img 
+                    src={selectedCompetitorData.logo} 
+                    alt={`${selectedCompetitorData.name} logo`} 
+                    className={`object-contain ${
+                      ['Garmin', 'Samsung Watch', 'Amazfit', 'Pulse', 'Suunto', 'Withings'].includes(selectedCompetitorData.name) 
+                        ? 'w-9 h-9' : 'w-8 h-8'
+                    }`}
+                    onError={(e) => {
+                      const target = e.target as HTMLImageElement;
+                      const parent = target.parentElement;
+                      if (parent) {
+                        parent.innerHTML = '';
+                        parent.appendChild(
+                          Object.assign(document.createElement('div'), {
+                            className: 'w-full h-full flex items-center justify-center text-white font-bold text-xs',
+                            textContent: selectedCompetitorData.name
+                          })
+                        );
+                      }
+                    }}
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-white font-bold text-xs">
+                    {selectedCompetitorData.name}
+                  </div>
+                )}
               </div>
               <div>
                 <h2 className="font-medium text-lg text-white">{selectedCompetitorData.name}</h2>

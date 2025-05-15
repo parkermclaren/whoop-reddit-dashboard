@@ -14,7 +14,10 @@
     "generate-faqs": "npx ts-node src/scripts/generate-faqs.ts",
     "generate-embeddings": "npx ts-node src/scripts/generate-embeddings.ts",
     "generate-embeddings:offline": "npx ts-node src/scripts/generate-embeddings.ts --offline",
-    "cluster-cancellations": "npx ts-node src/scripts/cluster-cancellation-reasons.ts"
+    "cluster-cancellations": "npx ts-node src/scripts/cluster-cancellation-reasons.ts",
+    "run-missing-extended": "npx ts-node src/scripts/run-missing-extended-analysis.ts",
+    "run-missing-product": "npx ts-node src/scripts/run-missing-product-analysis.ts",
+    "run-missing-faqs": "npx ts-node src/scripts/run-missing-faq-analysis.ts"
   },
   "dependencies": {
     "@heroicons/react": "^2.2.0",
