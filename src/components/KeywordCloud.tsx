@@ -94,6 +94,33 @@ export default function FeatureAspectCloud() {
   });
   const [normalizedScores, setNormalizedScores] = useState<Map<string, number>>(new Map());
 
+  // Map of full feature names to shortened display names
+  const featureNameMap: Record<string, string> = {
+    "HRV calibration": "HRV",
+    "improved Step Counter": "Steps",
+    "Improved Step Counter": "Steps",
+    "AI Assistant": "AI",
+    "improved Sleep Performance": "Sleep",
+    "Improved Sleep Performance": "Sleep",
+    "Women's Hormonal Insights": "Hormonal",
+    "Healthspan/WHOOP Age": "WHOOP Age",
+    "Improved Sensor accuracy": "Sensor",
+    "improved Sensor accuracy": "Sensor",
+    "Irregular Heart Rhythm": "Heart Rhythm",
+    "Blood Pressure": "BP",
+    "Battery Pack 5.0": "Battery",
+    "Stress Monitor": "Stress",
+    "improved Auto-Detected Activities": "Auto-Detect",
+    "Improved Auto-Detected Activities": "Auto-Detect",
+    "Daily Outlook": "Outlook",
+    "ECG": "ECG"
+  };
+
+  // Function to get short name for display
+  const getShortName = (fullName: string): string => {
+    return featureNameMap[fullName] || fullName;
+  };
+
   useEffect(() => {
     async function fetchFeatureAspectData() {
       try {
@@ -314,8 +341,10 @@ export default function FeatureAspectCloud() {
     node.each(function(d) {
       const radius = radiusScale(d.value);
       const fontSize = Math.min(radius / 3.5, 12);
+      // Use the shortened name for display
+      const shortName = getShortName(d.name);
       const maxCharsPerLine = Math.max(3, Math.floor(radius / (fontSize * 0.6)));
-      const lines = formatText(d.name, maxCharsPerLine);
+      const lines = formatText(shortName, maxCharsPerLine);
       
       const textElement = d3.select(this).append('text')
         .attr('text-anchor', 'middle')

@@ -39,40 +39,66 @@ export default function Home() {
       <Header />
       
       <div id="dashboard-content" className="container mx-auto px-4 py-6">
-        <div className="mb-12 relative">
-          <div className="absolute right-0 top-0 w-1/2 h-full flex items-center justify-center overflow-hidden pointer-events-none z-0">
-            <Image 
-              src="/logos/whooplogo.svg_.png" 
-              alt="WHOOP Logo" 
-              width={600} 
-              height={600}
-              className="object-contain opacity-20 backdrop-blur-sm filter blur-sm"
-              priority
-            />
+        <div className="mb-6 pt-4 relative flex flex-col items-center justify-center">
+          {/* Centered background logo */}
+          <div className="absolute inset-0 flex items-center justify-center overflow-hidden pointer-events-none z-0">
+            <div className="w-[90%] h-[90%] flex items-center justify-center">
+              <Image 
+                src="/logos/whooplogo.svg_.png" 
+                alt="WHOOP Logo" 
+                width={650} 
+                height={650}
+                className="object-contain opacity-20 backdrop-blur-sm filter blur-sm"
+                priority
+              />
+            </div>
           </div>
-          <div className="relative z-10">
-            <h1 className="text-3xl font-semibold mb-4">WHOOP REDDIT INSIGHTS</h1>
+          
+          {/* Centered content */}
+          <div className="relative z-10 text-center max-w-4xl mx-auto py-4">
+            <h1 className="text-5xl font-bold mb-4 text-white">
+              <span className="text-[#44d7b6]">Voice of WHOOP Users,</span> <span className="text-white">Decoded by AI</span>
+            </h1>
             
-            <div className="space-y-4 max-w-4xl">
-              <p className="text-gray-200 leading-relaxed">
-                This dashboard uses AI to transform the organic, unfiltered conversations from <a href="https://www.reddit.com/r/whoop/" target="_blank" rel="noopener noreferrer" className="text-[#44d7b6] hover:underline">r/whoop</a> into structured data and actionable insights following the <a href="https://www.youtube.com/watch?v=rZm8VHPkPoI" target="_blank" rel="noopener noreferrer" className="text-[#44d7b6] hover:underline">Unlocked 2025</a> product announcement on May 8th, 2025 at 10am EST.
-              </p>
-              
-              <div className="border-l-4 border-[#44d7b6] pl-4 py-1">
+            <p className="text-lg text-gray-200 leading-relaxed mb-6 max-w-3xl mx-auto">
+              Transforming conversations from <a href="https://www.reddit.com/r/whoop/" target="_blank" rel="noopener noreferrer" className="text-[#44d7b6] hover:underline">r/whoop</a> into actionable insights following the <a href="https://www.youtube.com/watch?v=rZm8VHPkPoI" target="_blank" rel="noopener noreferrer" className="text-[#44d7b6] hover:underline">Unlocked 2025</a> announcement.
+            </p>
+            
+            {/* Collapsible details button styled as a button instead of details/summary */}
+            <button 
+              onClick={() => {
+                const details = document.getElementById('dashboard-details');
+                if (details) {
+                  details.classList.toggle('hidden');
+                }
+              }}
+              className="inline-flex items-center justify-center px-5 py-2 mb-2 border border-[#44d7b6] rounded-lg text-sm font-medium text-[#44d7b6] hover:bg-[#44d7b6]/10 transition-colors"
+            >
+              <span>More about this dashboard</span>
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+            
+            {/* Hidden details section */}
+            <div id="dashboard-details" className="hidden bg-[#24262b]/80 p-4 rounded-xl mx-auto max-w-2xl backdrop-blur-sm mt-2">
+              <div className="space-y-4 text-left">
+                <div className="border-l-4 border-[#44d7b6] pl-4 py-1">
+                  <p className="text-gray-200 leading-relaxed">
+                    <span className="font-semibold">Why Reddit matters:</span> Reddit offers unfiltered customer sentiment where authenticity is rewarded. This community-driven platform provides direct insights into user experiences that more curated channels simply can't match.
+                  </p>
+                </div>
+                
+                <div className="border-l-4 border-[#44d7b6] pl-4 py-1">
+                  <p className="text-gray-200 leading-relaxed">
+                    <span className="font-semibold">Why AI-powered analysis:</span> LLMs excel at analyzing sentiment and extracting key information from unstructured text. They process thousands of conversations in minutes, delivering insights that would take weeks of manual human analysis to uncover.
+                  </p>
+                </div>
+                
                 <p className="text-gray-200 leading-relaxed">
-                  <span className="font-semibold">Why Reddit matters:</span> Reddit offers unfiltered customer sentiment where authenticity is rewarded. This community-driven platform provides direct insights into user experiences that more curated channels simply can't match.
+                  Updated hourly through our automated pipeline, this dashboard bridges the gap between raw community feedback and actionable product insights — transforming social noise into strategic direction.
                 </p>
               </div>
-              
-              <div className="border-l-4 border-[#44d7b6] pl-4 py-1">
-                <p className="text-gray-200 leading-relaxed">
-                  <span className="font-semibold">Why AI-powered analysis:</span> LLMs excel at analyzing sentiment and extracting key information from unstructured text. They process thousands of conversations in minutes, delivering insights that would take weeks of manual human analysis to uncover.
-                </p>
-              </div>
-              
-              <p className="text-gray-200 leading-relaxed">
-                Updated each hour through our automated pipeline, this dashboard bridges the gap between raw community feedback and actionable product insights — transforming social noise into strategic direction.
-              </p>
             </div>
           </div>
         </div>

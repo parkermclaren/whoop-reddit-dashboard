@@ -3,6 +3,7 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  --default-zoom: 1.08; /* Setting default zoom to 108% - slightly more subtle than 110% */
 }
 
 @theme inline {
@@ -17,6 +18,10 @@
     --background: #0a0a0a;
     --foreground: #ededed;
   }
+}
+
+html {
+  font-size: calc(100% * var(--default-zoom));
 }
 
 body {
