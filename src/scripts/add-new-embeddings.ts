@@ -138,7 +138,7 @@ async function findBestCluster(embedding: number[]): Promise<string | null> {
     // Get all existing clusters with their centroids
     const { data: clusters, error } = await supabase
       .from('question_clusters')
-      .select('id, centroid');
+      .select('id, topic, centroid');
     
     if (error) {
       console.error("Error fetching clusters:", error);
@@ -155,9 +155,35 @@ async function findBestCluster(embedding: number[]): Promise<string | null> {
     let bestSimilarity = -1;
     
     for (const cluster of clusters) {
-      if (!cluster.centroid) continue;
+      if (!cluster.centroid) {
+        continue;
+      }
       
-      const similarity = cosineSimilarity(embedding, cluster.centroid);
+      // Parse centroid if it's a string (handle both formats)
+      let centroidVector: number[];
+      if (typeof cluster.centroid === 'string') {
+        try {
+          // Try parsing as JSON
+          centroidVector = JSON.parse(cluster.centroid);
+        } catch (e) {
+          // If it's not valid JSON, split by commas (or other common separators)
+          centroidVector = cluster.centroid.split(/,|\s+/).map(Number).filter(n => !isNaN(n));
+        }
+      } else if (Array.isArray(cluster.centroid)) {
+        centroidVector = cluster.centroid;
+      } else {
+        console.log(`Cluster ${cluster.id} has invalid centroid format: ${typeof cluster.centroid}`);
+        continue;
+      }
+      
+      if (!centroidVector || centroidVector.length === 0) {
+        console.log(`Failed to parse centroid for cluster ${cluster.id}`);
+        continue;
+      }
+      
+      // Calculate similarity
+      const similarity = cosineSimilarity(embedding, centroidVector);
+      
       if (similarity > bestSimilarity) {
         bestSimilarity = similarity;
         bestClusterId = cluster.id;

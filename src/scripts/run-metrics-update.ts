@@ -14,7 +14,8 @@ async function main() {
   
   try {
     // Default batch size is 50, can be adjusted as needed
-    const success = await updatePostMetrics();
+    // Add verbose option to show detailed information about updated posts
+    const success = await updatePostMetrics(50, true);
     
     if (success) {
       console.log('Metrics update completed successfully!');

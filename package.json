@@ -17,13 +17,15 @@
     "cluster-cancellations": "npx ts-node src/scripts/cluster-cancellation-reasons.ts",
     "run-missing-extended": "npx ts-node src/scripts/run-missing-extended-analysis.ts",
     "run-missing-product": "npx ts-node src/scripts/run-missing-product-analysis.ts",
-    "run-missing-faqs": "npx ts-node src/scripts/run-missing-faq-analysis.ts"
+    "run-missing-faqs": "npx ts-node src/scripts/run-missing-faq-analysis.ts",
+    "add-new-embeddings": "npx ts-node src/scripts/add-new-embeddings.ts 200"
   },
   "dependencies": {
     "@heroicons/react": "^2.2.0",
     "@supabase/supabase-js": "^2.49.4",
     "@types/d3": "^7.4.3",
     "@types/d3-cloud": "^1.2.9",
+    "@types/uuid": "^10.0.0",
     "axios": "^1.9.0",
     "chart.js": "^4.4.9",
     "d3": "^7.9.0",
@@ -39,7 +41,8 @@
     "react-dom": "^19.0.0",
     "react-icons": "^5.5.0",
     "react-tagcloud": "^2.3.3",
-    "snoowrap": "^1.23.0"
+    "snoowrap": "^1.23.0",
+    "uuid": "^11.1.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

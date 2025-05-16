@@ -46,7 +46,7 @@ export default function Home() {
               alt="WHOOP Logo" 
               width={600} 
               height={600}
-              className="object-contain opacity-20"
+              className="object-contain opacity-20 backdrop-blur-sm filter blur-sm"
               priority
             />
           </div>
@@ -55,7 +55,7 @@ export default function Home() {
             
             <div className="space-y-4 max-w-4xl">
               <p className="text-gray-200 leading-relaxed">
-                This dashboard transforms the organic, unfiltered conversations from <a href="https://www.reddit.com/r/whoop/" target="_blank" rel="noopener noreferrer" className="text-[#44d7b6] hover:underline">r/whoop</a> into structured data and actionable insights following the <a href="https://www.youtube.com/watch?v=rZm8VHPkPoI" target="_blank" rel="noopener noreferrer" className="text-[#44d7b6] hover:underline">Unlocked 2025</a> product announcement on May 8th, 2025 at 10am EST.
+                This dashboard uses AI to transform the organic, unfiltered conversations from <a href="https://www.reddit.com/r/whoop/" target="_blank" rel="noopener noreferrer" className="text-[#44d7b6] hover:underline">r/whoop</a> into structured data and actionable insights following the <a href="https://www.youtube.com/watch?v=rZm8VHPkPoI" target="_blank" rel="noopener noreferrer" className="text-[#44d7b6] hover:underline">Unlocked 2025</a> product announcement on May 8th, 2025 at 10am EST.
               </p>
               
               <div className="border-l-4 border-[#44d7b6] pl-4 py-1">

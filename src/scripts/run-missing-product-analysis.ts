@@ -20,12 +20,12 @@ async function processMissingProductAnalysis(): Promise<void> {
   console.log("ONLY for posts that have been analyzed but don't have product review analysis yet.");
   console.log("-----------------------------------------------------------");
   
-  // Get all posts that need product review analysis
+  // Query to find posts that need product review analysis using the timestamp field only
   const { data: analyzedPosts, error } = await supabase
     .from('analysis_results')
     .select('content_id')
     .eq('content_type', 'post')
-    .is('product_received', null) // Field populated by product review analysis
+    .is('product_analysis_at', null)
     .order('inserted_at', { ascending: false });
   
   if (error || !analyzedPosts) {

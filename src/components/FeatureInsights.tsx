@@ -174,6 +174,7 @@ export default function FeatureInsights() {
   const [dataLoading, setDataLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedFeature, setSelectedFeature] = useState<string>('Blood Pressure');
+  const [activeSentiment, setActiveSentiment] = useState<'all' | 'positive' | 'neutral' | 'negative'>('all');
 
   useEffect(() => {
     const fetchFeatureData = async () => {
@@ -298,7 +299,7 @@ export default function FeatureInsights() {
             return { ...feature, isLoading: false };
           }
           
-          // Get quotes and add upvote/comment data
+          // Add upvote/comment data to quotes
           const quotesWithData = featureData.quotes.map(quote => ({
             ...quote,
             postUpvotes: postsData.get(quote.contentId)?.ups || quote.postUpvotes,
@@ -308,41 +309,27 @@ export default function FeatureInsights() {
             isTopCommented: false
           }));
           
-          // Ensure we get enough quotes for display
+          // Sort all quotes by upvotes for display
           const allSortedQuotes = [...quotesWithData].sort((a, b) => b.postUpvotes - a.postUpvotes);
           
-          // Sort quotes by upvotes and take top 3
-          const topUpvotedQuotes = allSortedQuotes
-            .slice(0, 3)
-            .map(quote => ({ ...quote, isTopUpvoted: true }));
-            
-          // Sort quotes by comment count and take top 2 that aren't already in top upvoted
-          const commentSortedQuotes = [...quotesWithData]
-            .sort((a, b) => (b.commentCount || 0) - (a.commentCount || 0));
+          // Mark top upvoted
+          if (allSortedQuotes.length > 0) {
+            allSortedQuotes.slice(0, 3).forEach(quote => {
+              quote.isTopUpvoted = true;
+            });
+          }
           
-          // Get quotes that aren't already in top upvoted
-          const remainingCommentedQuotes = commentSortedQuotes
-            .filter(commentQuote => !topUpvotedQuotes.some(upvoteQuote => 
-              upvoteQuote.contentId === commentQuote.contentId))
-            .slice(0, 2)
-            .map(quote => ({ ...quote, isTopCommented: true }));
+          // Mark top commented
+          const commentSortedQuotes = [...quotesWithData].sort((a, b) => (b.commentCount || 0) - (a.commentCount || 0));
+          if (commentSortedQuotes.length > 0) {
+            commentSortedQuotes.slice(0, 2).forEach(quote => {
+              quote.isTopCommented = true;
+            });
+          }
           
-          // Combine the quotes
-          const combinedQuotes = [...topUpvotedQuotes, ...remainingCommentedQuotes];
-          
-          // If we still don't have 5, add more from sorted quotes
-          const finalQuotes = combinedQuotes.length < 5 && allSortedQuotes.length > combinedQuotes.length 
-            ? [
-                ...combinedQuotes,
-                ...allSortedQuotes
-                  .filter(quote => !combinedQuotes.some(q => q.contentId === quote.contentId))
-                  .slice(0, 5 - combinedQuotes.length)
-              ].slice(0, 5)
-            : combinedQuotes.slice(0, 5);
-            
           return {
             ...feature,
-            quotes: finalQuotes,
+            quotes: allSortedQuotes, // Keep all quotes instead of limiting to 5
             mentionCount: featureData.mentionCount,
             isLoading: false
           };
@@ -376,6 +363,11 @@ export default function FeatureInsights() {
   }
 
   const selectedFeatureData = features.find(f => f.name === selectedFeature) || features[0];
+  
+  // Filter quotes by sentiment
+  const filteredQuotes = selectedFeatureData.quotes.filter(quote => 
+    activeSentiment === 'all' || quote.sentiment === activeSentiment
+  );
 
   return (
     <div className="flex flex-col md:flex-row space-y-4 md:space-y-0 md:space-x-6">
@@ -426,6 +418,34 @@ export default function FeatureInsights() {
           </div>
         </div>
 
+        {/* Sentiment filter buttons */}
+        <div className="flex space-x-2 mb-4 overflow-x-auto">
+          <button 
+            className={`px-3 py-1 rounded-full text-xs ${activeSentiment === 'all' ? 'bg-[#34363f] text-white' : 'bg-[#2a2c33] text-gray-400'}`}
+            onClick={() => setActiveSentiment('all')}
+          >
+            All ({selectedFeatureData.quotes.length})
+          </button>
+          <button 
+            className={`px-3 py-1 rounded-full text-xs ${activeSentiment === 'positive' ? 'bg-[#44d7b6] text-gray-900' : 'bg-[#2a2c33] text-gray-400'}`}
+            onClick={() => setActiveSentiment('positive')}
+          >
+            Positive ({selectedFeatureData.quotes.filter(q => q.sentiment === 'positive').length})
+          </button>
+          <button 
+            className={`px-3 py-1 rounded-full text-xs ${activeSentiment === 'neutral' ? 'bg-[#b4b4b4] text-gray-900' : 'bg-[#2a2c33] text-gray-400'}`}
+            onClick={() => setActiveSentiment('neutral')}
+          >
+            Neutral ({selectedFeatureData.quotes.filter(q => q.sentiment === 'neutral').length})
+          </button>
+          <button 
+            className={`px-3 py-1 rounded-full text-xs ${activeSentiment === 'negative' ? 'bg-[#e25e5e] text-gray-900' : 'bg-[#2a2c33] text-gray-400'}`}
+            onClick={() => setActiveSentiment('negative')}
+          >
+            Negative ({selectedFeatureData.quotes.filter(q => q.sentiment === 'negative').length})
+          </button>
+        </div>
+
         <div className="space-y-3 max-h-[500px] overflow-y-auto pr-2">
           {selectedFeatureData.isLoading ? (
             // Loading state for quotes
@@ -438,8 +458,8 @@ export default function FeatureInsights() {
                 </div>
               </div>
             ))
-          ) : selectedFeatureData.quotes.length > 0 ? (
-            selectedFeatureData.quotes.map((quote, index) => (
+          ) : filteredQuotes.length > 0 ? (
+            filteredQuotes.map((quote, index) => (
               <a 
                 key={index} 
                 href={quote.postUrl || '#'} 

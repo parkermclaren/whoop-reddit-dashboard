@@ -20,19 +20,12 @@ async function processMissingExtendedAnalysis(): Promise<void> {
   console.log("ONLY to posts that have been analyzed but don't have extended analysis yet.");
   console.log("-----------------------------------------------------------");
   
-  // Query to find posts that need extended analysis using all four criteria:
-  // 1. competitor_mentions is []
-  // 2. aspects is []
-  // 3. cancellation_mention is FALSE
-  // 4. cancellation_reason is NULL
+  // Query to find posts that need extended analysis using the timestamp field only
   const { data: postsToProcess, error } = await supabase
     .from('analysis_results')
     .select('content_id, inserted_at')
     .eq('content_type', 'post')
-    .eq('competitor_mentions', '[]')
-    .eq('aspects', '[]')
-    .eq('cancellation_mention', false)
-    .is('cancellation_reason', null)
+    .is('extended_analysis_at', null)
     .order('inserted_at', { ascending: false });
   
   if (error || !postsToProcess) {

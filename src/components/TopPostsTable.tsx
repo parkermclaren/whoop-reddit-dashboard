@@ -151,8 +151,8 @@ export default function TopPostsTable({
           filteredPosts = transformedPosts.filter(post => post.sentiment === activeSentiment);
         }
 
-        // Take the top 10 after filtering
-        setPosts(filteredPosts.slice(0, 10));
+        // Take the top 25 after filtering instead of just 10
+        setPosts(filteredPosts.slice(0, 25));
       } catch (err) {
         console.error('Error fetching top posts:', err);
         setError(err instanceof Error ? err.message : JSON.stringify(err));
@@ -238,9 +238,9 @@ export default function TopPostsTable({
         </div>
       </div>
       
-      <div className="overflow-x-auto relative">
+      <div className="overflow-x-auto relative max-h-[600px] overflow-y-auto">
         <table className="min-w-full divide-y divide-gray-700">
-          <thead>
+          <thead className="bg-[#24262b] sticky top-0">
             <tr>
               <th className="px-3 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Title</th>
               <th className="px-3 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Author</th>

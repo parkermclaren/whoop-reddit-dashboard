@@ -1,6 +1,7 @@
 import * as dotenv from 'dotenv';
 import Snoowrap from 'snoowrap';
 import { createClient } from '@supabase/supabase-js';
+import { v7 as uuidv7 } from 'uuid';
 
 // Load environment variables
 dotenv.config({ path: '.env.local' });
@@ -48,10 +49,15 @@ const rateLimiter = {
  * - Older posts (>7 days): Once per week
  * 
  * @param batchSize Number of posts to update per batch
+ * @param verbose If true, logs detailed information about each post's metrics
  */
-export async function updatePostMetrics(batchSize = 50): Promise<boolean> {
+export async function updatePostMetrics(batchSize = 50, verbose = false): Promise<boolean> {
   try {
     console.log('Starting to update metrics for existing posts...');
+    
+    // Generate a unique job ID for this run
+    const jobId = uuidv7();
+    console.log(`Job ID: ${jobId}`);
     
     const now = new Date();
     
@@ -67,7 +73,7 @@ export async function updatePostMetrics(batchSize = 50): Promise<boolean> {
     const currentMinute = now.getMinutes();
     const dayOfWeek = now.getDay(); // 0 = Sunday, 1 = Monday, etc.
     
-    let query = supabase.from('reddit_posts').select('id, reddit_id, created_at');
+    let query = supabase.from('reddit_posts').select('id, reddit_id, created_at, ups, num_comments, title');
     let updateType = '';
     
     // Check if we're within a window of the hour that is divisible by 6
@@ -124,6 +130,10 @@ export async function updatePostMetrics(batchSize = 50): Promise<boolean> {
     let skippedCount = 0;
     let errorCount = 0;
     
+    // Track metrics changes for reporting
+    const metricsChanges = [];
+    const batchTime = now.toISOString();
+    
     // Process each batch
     for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
       const batch = batches[batchIndex];
@@ -137,29 +147,92 @@ export async function updatePostMetrics(batchSize = 50): Promise<boolean> {
           const redditId = post.reddit_id.replace(/^t3_/, '');
           
           // Fetch the post from Reddit
-          console.log(`Fetching post ${redditId} from Reddit`);
+          if (verbose) {
+            console.log(`Fetching post ${redditId} from Reddit: "${post.title?.substring(0, 50)}${post.title?.length > 50 ? '...' : ''}"`);
+          } else {
+            console.log(`Fetching post ${redditId} from Reddit`);
+          }
+          
           // Workaround for TypeScript error by splitting calls
           const submission = reddit.getSubmission(redditId);
           // @ts-ignore - Suppress TypeScript error about self-referencing Promise
           const redditPost = await submission.fetch();
           
-          // Update metrics in Supabase
-          const { error: updateError } = await supabase
-            .from('reddit_posts')
-            .update({
-              ups: redditPost.ups,
-              num_comments: redditPost.num_comments,
-              score: redditPost.score || redditPost.ups,
-              updated_at: new Date().toISOString()
-            })
-            .eq('id', post.id);
+          // Calculate metrics differences
+          const oldUps = post.ups || 0;
+          const oldComments = post.num_comments || 0;
+          const newUps = redditPost.ups || 0;
+          const newComments = redditPost.num_comments || 0;
+          const upsDiff = newUps - oldUps;
+          const commentsDiff = newComments - oldComments;
           
-          if (updateError) {
-            console.error(`Error updating metrics for post ${redditId}:`, updateError);
-            errorCount++;
+          // Calculate post age in days
+          const postCreatedAt = new Date(post.created_at);
+          const ageInMs = now.getTime() - postCreatedAt.getTime();
+          const ageInDays = Math.floor(ageInMs / (1000 * 60 * 60 * 24));
+          
+          // Store metrics change for reporting
+          if (verbose) {
+            metricsChanges.push({
+              id: redditId,
+              title: post.title,
+              ups: { old: oldUps, new: newUps, diff: upsDiff },
+              comments: { old: oldComments, new: newComments, diff: commentsDiff }
+            });
+          }
+          
+          // Only update if there's an actual change to avoid unnecessary updates
+          if (upsDiff !== 0 || commentsDiff !== 0) {
+            // Update metrics in Supabase
+            const { error: updateError } = await supabase
+              .from('reddit_posts')
+              .update({
+                ups: redditPost.ups,
+                num_comments: redditPost.num_comments,
+                score: redditPost.score || redditPost.ups,
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', post.id);
+            
+            if (updateError) {
+              console.error(`Error updating metrics for post ${redditId}:`, updateError);
+              errorCount++;
+            } else {
+              // Log the update to the metrics_update_logs table
+              const { error: logError } = await supabase
+                .from('metrics_update_logs')
+                .insert({
+                  job_id: jobId,
+                  post_id: post.id,
+                  reddit_id: post.reddit_id,
+                  post_title: post.title,
+                  previous_ups: oldUps,
+                  new_ups: newUps,
+                  ups_change: upsDiff,
+                  previous_comments: oldComments,
+                  new_comments: newComments,
+                  comments_change: commentsDiff,
+                  batch_time: batchTime,
+                  post_age_days: ageInDays
+                });
+              
+              if (logError) {
+                console.error(`Error logging metrics update for post ${redditId}:`, logError);
+              }
+              
+              if (verbose) {
+                console.log(`Updated metrics for post ${redditId}:`);
+                console.log(`  Upvotes: ${oldUps} → ${newUps} (${upsDiff >= 0 ? '+' : ''}${upsDiff})`);
+                console.log(`  Comments: ${oldComments} → ${newComments} (${commentsDiff >= 0 ? '+' : ''}${commentsDiff})`);
+              } else {
+                console.log(`Updated metrics for post ${redditId}`);
+              }
+              updatedCount++;
+            }
           } else {
-            console.log(`Updated metrics for post ${redditId}`);
-            updatedCount++;
+            if (verbose) {
+              console.log(`No metrics changes for post ${redditId} - skipping update`);
+            }
           }
         } catch (error: any) {
           console.error(`Error processing post ${post.reddit_id}:`, error?.message);
@@ -179,6 +252,26 @@ export async function updatePostMetrics(batchSize = 50): Promise<boolean> {
     console.log(`- Updated: ${updatedCount} posts`);
     console.log(`- Skipped (deleted): ${skippedCount} posts`);
     console.log(`- Errors: ${errorCount} posts`);
+    console.log(`- Job ID: ${jobId}`);
+    
+    // In verbose mode, output a summary of all metric changes
+    if (verbose && metricsChanges.length > 0) {
+      console.log('\nDetailed metrics changes:');
+      console.log('-'.repeat(80));
+      
+      // Sort by most significant changes first (highest ups or comments diff)
+      metricsChanges.sort((a, b) => 
+        Math.max(Math.abs(b.ups.diff), Math.abs(b.comments.diff)) - 
+        Math.max(Math.abs(a.ups.diff), Math.abs(a.comments.diff))
+      );
+      
+      metricsChanges.forEach(change => {
+        console.log(`Post: ${change.id} - "${change.title?.substring(0, 60)}${change.title?.length > 60 ? '...' : ''}"`);
+        console.log(`  Upvotes: ${change.ups.old} → ${change.ups.new} (${change.ups.diff >= 0 ? '+' : ''}${change.ups.diff})`);
+        console.log(`  Comments: ${change.comments.old} → ${change.comments.new} (${change.comments.diff >= 0 ? '+' : ''}${change.comments.diff})`);
+        console.log('-'.repeat(80));
+      });
+    }
     
     return true;
   } catch (error) {
@@ -190,7 +283,9 @@ export async function updatePostMetrics(batchSize = 50): Promise<boolean> {
 // Run directly from command line
 async function main() {
   try {
-    const success = await updatePostMetrics();
+    // Check if verbose mode is enabled via command line arguments
+    const verbose = process.argv.includes('--verbose') || process.argv.includes('-v');
+    const success = await updatePostMetrics(50, verbose);
     console.log(success ? 'Post metrics updated successfully.' : 'Post metrics update encountered errors.');
     process.exit(success ? 0 : 1);
   } catch (error) {
