@@ -96,29 +96,26 @@ export default function FeatureAspectCloud() {
 
   // Map of full feature names to shortened display names
   const featureNameMap: Record<string, string> = {
-    "HRV calibration": "HRV",
-    "improved Step Counter": "Steps",
-    "Improved Step Counter": "Steps",
-    "AI Assistant": "AI",
-    "improved Sleep Performance": "Sleep",
-    "Improved Sleep Performance": "Sleep",
-    "Women's Hormonal Insights": "Hormonal",
-    "Healthspan/WHOOP Age": "WHOOP Age",
-    "Improved Sensor accuracy": "Sensor",
-    "improved Sensor accuracy": "Sensor",
-    "Irregular Heart Rhythm": "Heart Rhythm",
-    "Blood Pressure": "BP",
-    "Battery Pack 5.0": "Battery",
-    "Stress Monitor": "Stress",
-    "improved Auto-Detected Activities": "Auto-Detect",
-    "Improved Auto-Detected Activities": "Auto-Detect",
-    "Daily Outlook": "Outlook",
-    "ECG": "ECG"
+    "hrv calibration": "HRV",
+    "improved step counter": "Steps",
+    "ai assistant": "AI",
+    "improved sleep performance": "Sleep",
+    "women's hormonal insights": "Hormonal",
+    "healthspan/whoop age": "WHOOP Age",
+    "improved sensor accuracy": "Sensor",
+    "irregular heart rhythm": "Heart Rhythm",
+    "blood pressure": "BP",
+    "battery pack 5.0": "Battery",
+    "stress monitor": "Stress",
+    "improved auto-detected activities": "Auto-Detect",
+    "daily outlook": "Outlook",
+    "ecg": "ECG"
   };
 
   // Function to get short name for display
   const getShortName = (fullName: string): string => {
-    return featureNameMap[fullName] || fullName;
+    const normalizedName = fullName.toLowerCase();
+    return featureNameMap[normalizedName] || fullName;
   };
 
   useEffect(() => {
@@ -138,36 +135,41 @@ export default function FeatureAspectCloud() {
           count: number; 
           sentiments: SentimentStats;
           quotes: string[];
+          originalName: string; // Store the original name for display
         }> = {};
         
         data.forEach(item => {
           if (item.aspects && item.aspects.length > 0) {
             item.aspects.forEach((aspect: AspectData) => {
-              const featureName = aspect.feature.trim();
-              if (!featureFrequency[featureName]) {
-                featureFrequency[featureName] = { 
+              // Normalize feature name by trimming and converting to lowercase
+              const originalName = aspect.feature.trim();
+              const normalizedName = originalName.toLowerCase();
+              
+              if (!featureFrequency[normalizedName]) {
+                featureFrequency[normalizedName] = { 
                   count: 0, 
                   sentiments: { positive: 0, neutral: 0, negative: 0 },
-                  quotes: []
+                  quotes: [],
+                  originalName: originalName // Store the first occurrence as the display name
                 };
               }
-              featureFrequency[featureName].count += 1;
+              featureFrequency[normalizedName].count += 1;
               
               // Safely increment sentiment count
               const sentiment = aspect.sentiment;
               if (sentiment === 'positive' || sentiment === 'neutral' || sentiment === 'negative') {
-                featureFrequency[featureName].sentiments[sentiment] += 1;
+                featureFrequency[normalizedName].sentiments[sentiment] += 1;
               }
               
               // Store up to 3 quotes per feature
-              if (aspect.quote && featureFrequency[featureName].quotes.length < 3) {
-                featureFrequency[featureName].quotes.push(aspect.quote);
+              if (aspect.quote && featureFrequency[normalizedName].quotes.length < 3) {
+                featureFrequency[normalizedName].quotes.push(aspect.quote);
               }
             });
           }
         });
         
-        const bubbles = Object.entries(featureFrequency).map(([feature, { count, sentiments, quotes }]) => {
+        const bubbles = Object.entries(featureFrequency).map(([normalizedName, { count, sentiments, quotes, originalName }]) => {
           let mostCommonSentiment = 'neutral';
           let maxCount = 0;
           
@@ -186,8 +188,8 @@ export default function FeatureAspectCloud() {
           }
           
           return {
-            id: feature,
-            name: feature,
+            id: normalizedName,
+            name: originalName, // Use the original name for display
             value: count,
             sentiment: mostCommonSentiment,
             sentimentStats: sentiments,

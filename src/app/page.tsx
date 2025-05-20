@@ -61,7 +61,7 @@ export default function Home() {
             </h1>
             
             <p className="text-lg text-gray-200 leading-relaxed mb-6 max-w-3xl mx-auto">
-              Transforming conversations from <a href="https://www.reddit.com/r/whoop/" target="_blank" rel="noopener noreferrer" className="text-[#44d7b6] hover:underline">r/whoop</a> into actionable insights following the <a href="https://www.youtube.com/watch?v=rZm8VHPkPoI" target="_blank" rel="noopener noreferrer" className="text-[#44d7b6] hover:underline">Unlocked 2025</a> announcement.
+              Transforming conversations from <a href="https://www.reddit.com/r/whoop/" target="_blank" rel="noopener noreferrer" className="text-[#44d7b6] hover:underline">r/whoop</a> into actionable insights following the <a href="https://www.youtube.com/watch?v=rZm8VHPkPoI" target="_blank" rel="noopener noreferrer" className="text-[#44d7b6] hover:underline">Unlocked 2025</a> announcement on May 8, 2025.
             </p>
             
             {/* Collapsible details button styled as a button instead of details/summary */}

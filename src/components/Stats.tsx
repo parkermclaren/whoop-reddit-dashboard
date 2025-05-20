@@ -422,7 +422,7 @@ export default function Stats() {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8 mt-2">
       <div className="bg-[#24262b] rounded-xl p-6 shadow-lg">
-        <h3 className="text-sm text-gray-400 uppercase mb-1">Total Posts</h3>
+        <h3 className="text-sm text-gray-400 uppercase mb-1">Total Posts Since Unlocked</h3>
         <div className="flex items-end">
           <div className="text-4xl font-bold">{sentimentStats?.total_count || 780}</div>
         </div>

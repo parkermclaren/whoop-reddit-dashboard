@@ -42,9 +42,10 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 
 // Mapping for normalizing competitor names (grouping similar names)
 const normalizeCompetitorName = (name: string): string => {
-  if (name.toLowerCase().includes('apple')) return 'Apple Watch';
-  if (name.toLowerCase().includes('samsung')) return 'Samsung Watch';
-  if (name.toLowerCase() === 'coros' || name.toUpperCase() === 'COROS') return 'COROS';
+  const lowerName = name.toLowerCase();
+  if (lowerName.includes('apple')) return 'Apple Watch';
+  if (lowerName.includes('samsung') || lowerName.includes('galaxy')) return 'Samsung Watch';
+  if (lowerName === 'coros' || name.toUpperCase() === 'COROS') return 'COROS';
   return name;
 };
 
@@ -64,6 +65,7 @@ const competitorLogos: Record<string, string> = {
   'Eight Sleep': '/logos/Eight-Sleep.webp',
   'Qardio': '/logos/qlogo.png',
   'Polar': '/logos/Polar-logo-300x125.png',
+  'Google Pixel Watch': '/logos/Google__G__logo.svg.webp',
 };
 
 // Default text logo component for competitors without an image
