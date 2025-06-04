@@ -108,8 +108,25 @@ export default function FeatureAspectCloud() {
     "battery pack 5.0": "Battery",
     "stress monitor": "Stress",
     "improved auto-detected activities": "Auto-Detect",
-    "daily outlook": "Outlook",
+    "daily outlook": "AI",
     "ecg": "ECG"
+  };
+
+  // Function to consolidate features before processing
+  const consolidateFeature = (featureName: string): string => {
+    const normalizedName = featureName.toLowerCase().trim();
+    
+    // Consolidate outlook-related features under AI
+    if (normalizedName.includes('outlook')) {
+      return 'ai assistant';
+    }
+    
+    // Consolidate sleep-related features under Sleep
+    if (normalizedName.includes('sleep')) {
+      return 'improved sleep performance';
+    }
+    
+    return normalizedName;
   };
 
   // Function to get short name for display
@@ -141,35 +158,35 @@ export default function FeatureAspectCloud() {
         data.forEach(item => {
           if (item.aspects && item.aspects.length > 0) {
             item.aspects.forEach((aspect: AspectData) => {
-              // Normalize feature name by trimming and converting to lowercase
+              // First consolidate the feature, then normalize
               const originalName = aspect.feature.trim();
-              const normalizedName = originalName.toLowerCase();
+              const consolidatedName = consolidateFeature(originalName);
               
-              if (!featureFrequency[normalizedName]) {
-                featureFrequency[normalizedName] = { 
+              if (!featureFrequency[consolidatedName]) {
+                featureFrequency[consolidatedName] = { 
                   count: 0, 
                   sentiments: { positive: 0, neutral: 0, negative: 0 },
                   quotes: [],
-                  originalName: originalName // Store the first occurrence as the display name
+                  originalName: consolidatedName // Use consolidated name as display name
                 };
               }
-              featureFrequency[normalizedName].count += 1;
+              featureFrequency[consolidatedName].count += 1;
               
               // Safely increment sentiment count
               const sentiment = aspect.sentiment;
               if (sentiment === 'positive' || sentiment === 'neutral' || sentiment === 'negative') {
-                featureFrequency[normalizedName].sentiments[sentiment] += 1;
+                featureFrequency[consolidatedName].sentiments[sentiment] += 1;
               }
               
               // Store up to 3 quotes per feature
-              if (aspect.quote && featureFrequency[normalizedName].quotes.length < 3) {
-                featureFrequency[normalizedName].quotes.push(aspect.quote);
+              if (aspect.quote && featureFrequency[consolidatedName].quotes.length < 3) {
+                featureFrequency[consolidatedName].quotes.push(aspect.quote);
               }
             });
           }
         });
         
-        const bubbles = Object.entries(featureFrequency).map(([normalizedName, { count, sentiments, quotes, originalName }]) => {
+        const bubbles = Object.entries(featureFrequency).map(([consolidatedName, { count, sentiments, quotes, originalName }]) => {
           let mostCommonSentiment = 'neutral';
           let maxCount = 0;
           
@@ -188,8 +205,8 @@ export default function FeatureAspectCloud() {
           }
           
           return {
-            id: normalizedName,
-            name: originalName, // Use the original name for display
+            id: consolidatedName,
+            name: originalName, // Use the consolidated name for display
             value: count,
             sentiment: mostCommonSentiment,
             sentimentStats: sentiments,

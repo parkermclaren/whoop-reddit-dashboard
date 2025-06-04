@@ -41,11 +41,63 @@ const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 // Mapping for normalizing competitor names (grouping similar names)
-const normalizeCompetitorName = (name: string): string => {
-  const lowerName = name.toLowerCase();
+const normalizeCompetitorName = (name: string): string | null => {
+  const lowerName = name.toLowerCase().trim();
+  
+  // Filter out WHOOP since it's not a competitor to itself
+  if (lowerName.includes('whoop')) return null;
+  
+  // Apple Watch variations
   if (lowerName.includes('apple')) return 'Apple Watch';
+  
+  // Samsung Watch variations
   if (lowerName.includes('samsung') || lowerName.includes('galaxy')) return 'Samsung Watch';
+  
+  // Google Pixel Watch variations
+  if (lowerName.includes('google') || lowerName.includes('pixel')) return 'Google Pixel Watch';
+  
+  // COROS variations
   if (lowerName === 'coros' || name.toUpperCase() === 'COROS') return 'COROS';
+  
+  // Garmin variations
+  if (lowerName.includes('garmin')) return 'Garmin';
+  
+  // Fitbit variations
+  if (lowerName.includes('fitbit')) return 'Fitbit';
+  
+  // Oura variations
+  if (lowerName.includes('oura')) return 'Oura';
+  
+  // Suunto variations
+  if (lowerName.includes('suunto')) return 'Suunto';
+  
+  // Amazfit variations
+  if (lowerName.includes('amazfit')) return 'Amazfit';
+  
+  // Withings variations
+  if (lowerName.includes('withings')) return 'Withings';
+  
+  // Polar variations
+  if (lowerName.includes('polar')) return 'Polar';
+  
+  // Eight Sleep variations
+  if (lowerName.includes('eight sleep')) return 'Eight Sleep';
+  
+  // KardiaMobile/AliveCor variations
+  if (lowerName.includes('kardia') || lowerName.includes('alivecor')) return 'KardiaMobile';
+  
+  // QardioCore variations
+  if (lowerName.includes('qardio')) return 'QardioCore';
+  
+  // Pulse variations
+  if (lowerName === 'pulse') return 'Pulse';
+  
+  // sense.ai variations
+  if (lowerName.includes('sense.ai') || lowerName.includes('sense ai')) return 'sense.ai';
+  
+  // Zyke variations
+  if (lowerName.includes('zyke')) return 'Zyke';
+  
   return name;
 };
 
@@ -63,9 +115,11 @@ const competitorLogos: Record<string, string> = {
   'KardiaMobile': '/logos/alivecor(kardia).png',
   'Pulse': '/logos/pulse. logo.svg',
   'Eight Sleep': '/logos/Eight-Sleep.webp',
-  'Qardio': '/logos/qlogo.png',
+  'QardioCore': '/logos/qlogo.png',
   'Polar': '/logos/Polar-logo-300x125.png',
   'Google Pixel Watch': '/logos/Google__G__logo.svg.webp',
+  'sense.ai': '',
+  'Zyke': ''
 };
 
 // Default text logo component for competitors without an image
@@ -104,6 +158,9 @@ export default function CompetitorMentions() {
               
               // Normalize the competitor name (combine related names)
               const normalizedName = normalizeCompetitorName(originalName);
+              
+              // Skip if normalizedName is null (e.g., WHOOP mentions)
+              if (!normalizedName) return;
 
               const existingCompetitor = competitorMap.get(normalizedName);
               const sentiment = mention.comp_sentiment?.toLowerCase() || 'neutral';
@@ -260,13 +317,13 @@ export default function CompetitorMentions() {
         <div className="grid grid-cols-3 gap-3">
           {competitors.map((competitor) => {
             // Determine if this logo needs a white background
-            const needsWhiteBackground = ['Amazfit', 'Withings', 'Polar', 'Qardio'].includes(competitor.name);
+            const needsWhiteBackground = ['Amazfit', 'Withings', 'Polar', 'QardioCore'].includes(competitor.name);
             // Determine if this logo needs larger size
-            const needsLargerSize = ['Garmin', 'Samsung Watch', 'Amazfit', 'Pulse', 'Suunto', 'Withings'].includes(competitor.name);
+            const needsLargerSize = ['Garmin', 'Samsung Watch', 'Amazfit', 'Pulse', 'Suunto', 'Withings', 'Google Pixel Watch'].includes(competitor.name);
             // Determine if this logo needs to be in a circle
             const needsCircle = ['Oura', 'KardiaMobile', 'Eight Sleep'].includes(competitor.name);
             // Check if logo exists or should use default text
-            const hasLogo = competitorLogos[competitor.name] !== undefined;
+            const hasLogo = competitorLogos[competitor.name] !== undefined && competitorLogos[competitor.name] !== '';
             
             return (
               <div 
@@ -323,14 +380,14 @@ export default function CompetitorMentions() {
           <>
             <div className="flex items-center space-x-3 mb-4 border-b border-gray-700 pb-3">
               <div className={`w-10 h-10 flex items-center justify-center overflow-hidden ${
-                ['Amazfit', 'Withings', 'Polar', 'Qardio'].includes(selectedCompetitorData.name) ? 'bg-white rounded-full' : ''
+                ['Amazfit', 'Withings', 'Polar', 'QardioCore'].includes(selectedCompetitorData.name) ? 'bg-white rounded-full' : ''
               } ${['Oura', 'KardiaMobile', 'Eight Sleep'].includes(selectedCompetitorData.name) ? 'rounded-full' : ''}`}>
-                {competitorLogos[selectedCompetitorData.name] ? (
+                {competitorLogos[selectedCompetitorData.name] && competitorLogos[selectedCompetitorData.name] !== '' ? (
                   <img 
                     src={selectedCompetitorData.logo} 
                     alt={`${selectedCompetitorData.name} logo`} 
                     className={`object-contain ${
-                      ['Garmin', 'Samsung Watch', 'Amazfit', 'Pulse', 'Suunto', 'Withings'].includes(selectedCompetitorData.name) 
+                      ['Garmin', 'Samsung Watch', 'Amazfit', 'Pulse', 'Suunto', 'Withings', 'Google Pixel Watch'].includes(selectedCompetitorData.name) 
                         ? 'w-9 h-9' : 'w-8 h-8'
                     }`}
                     onError={(e) => {
