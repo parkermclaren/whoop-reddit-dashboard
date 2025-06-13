@@ -105,7 +105,7 @@ const PREDEFINED_FEATURES: FeatureData[] = [
     isLoading: true
   },
   {
-    name: 'Women\'s Hormonal Insights',
+    name: "Women's Hormonal Insights",
     icon: <Flower className="w-6 h-6 text-white" />,
     quotes: [],
     mentionCount: 0,
@@ -181,14 +181,14 @@ export default function FeatureInsights() {
       try {
         setError(null);
         const supabase = createClient();
-
-        console.log("Fetching analysis results...");
         
-        // Using a simple approach - just fetch all analysis results that are posts
+        // Simplified approach - match KeywordCloud's successful query
         const { data: analysisResults, error: analysisError } = await supabase
           .from('analysis_results')
-          .select('content_id, aspects, id')
-          .eq('content_type', 'post');
+          .select('content_id, aspects')
+          .eq('content_type', 'post')
+          .not('aspects', 'is', null)
+          .not('aspects', 'eq', '[]');
         
         if (analysisError) {
           console.error("Analysis results error:", analysisError);
@@ -196,27 +196,12 @@ export default function FeatureInsights() {
         }
         
         if (!analysisResults || analysisResults.length === 0) {
-          console.log("No analysis results found");
           setFeatures(features.map(f => ({ ...f, isLoading: false })));
           setDataLoading(false);
           return;
         }
         
-        console.log(`Found ${analysisResults.length} analysis results`);
-        
-        // Filter in JavaScript to find results with non-null aspects
-        const validResults = analysisResults
-          .filter(result => result.aspects && Array.isArray(result.aspects) && result.aspects.length > 0);
-          
-        console.log(`Found ${validResults.length} results with valid aspects`);
-        
-        if (validResults.length === 0) {
-          setFeatures(features.map(f => ({ ...f, isLoading: false })));
-          setDataLoading(false);
-          return;
-        }
-        
-        // Count feature mentions and collect quotes
+        // Count feature mentions and collect quotes - simplified approach
         const featureMap = new Map<string, { quotes: Quote[], mentionCount: number }>();
         
         // Initialize with predefined features
@@ -224,65 +209,68 @@ export default function FeatureInsights() {
           featureMap.set(feature.name, { quotes: [], mentionCount: 0 });
         });
         
-        // Process results to extract feature data
-        validResults.forEach(result => {
-          const aspects = result.aspects;
-          aspects.forEach((aspect: AspectInDb) => {
-            if (!aspect.feature || !aspect.quote) return;
-            
-            // For existing features and potentially new ones
-            if (!featureMap.has(aspect.feature)) {
-              featureMap.set(aspect.feature, { quotes: [], mentionCount: 0 });
-            }
-            
-            const featureData = featureMap.get(aspect.feature)!;
-            featureData.mentionCount++;
-            featureData.quotes.push({
-              text: aspect.quote,
-              postUpvotes: 1, // Default, will be updated if possible
-              contentId: result.content_id,
-              commentCount: 0, // Default, will be updated if possible
-              sentiment: aspect.sentiment
+        // Process all results directly
+        analysisResults.forEach(result => {
+          if (result.aspects && Array.isArray(result.aspects)) {
+            result.aspects.forEach((aspect: any) => {
+              const featureName = aspect.feature;
+              const quote = aspect.quote;
+              const sentiment = aspect.sentiment;
+              
+              // Skip if missing required data
+              if (!featureName || !quote) return;
+              
+              // Initialize feature if not exists (for any new features found)
+              if (!featureMap.has(featureName)) {
+                featureMap.set(featureName, { quotes: [], mentionCount: 0 });
+              }
+              
+              // Get feature data and increment
+              const featureData = featureMap.get(featureName)!;
+              featureData.mentionCount++;
+              featureData.quotes.push({
+                text: quote,
+                postUpvotes: 1,
+                contentId: result.content_id,
+                commentCount: 0,
+                sentiment: sentiment
+              });
             });
-          });
+          }
         });
         
-        // Now try to get upvotes and comment information
+        // Get unique content IDs for reddit_posts data
         const uniqueContentIds = Array.from(
-          new Set(validResults.map(result => result.content_id))
+          new Set(analysisResults.map(result => result.content_id))
         );
         
-        console.log(`Found ${uniqueContentIds.length} unique content IDs`);
-        
-        // Map to store content_id -> data
+        // Fetch reddit_posts data in larger batches
         const postsData = new Map<string, { ups: number, num_comments: number, url?: string }>();
         
         if (uniqueContentIds.length > 0) {
           try {
-            // Fetch in small batches
-            const batchSize = 5;
+            const batchSize = 100; // Larger batch size
             
             for (let i = 0; i < uniqueContentIds.length; i += batchSize) {
               const batchIds = uniqueContentIds.slice(i, i + batchSize);
               
-              const { data: postsBatch, error: batchError } = await supabase
-                .from('reddit_posts')
-                .select('id, ups, num_comments, url')
-                .in('id', batchIds);
-                
-              if (batchError) {
-                console.error(`Batch ${i/batchSize} error:`, batchError);
-                continue;
-              }
-              
-              if (postsBatch) {
-                postsBatch.forEach(post => {
-                  postsData.set(post.id, { 
-                    ups: post.ups || 0,
-                    num_comments: post.num_comments || 0,
-                    url: post.url || undefined
+              try {
+                const { data: postsBatch, error: batchError } = await supabase
+                  .from('reddit_posts')
+                  .select('id, ups, num_comments, url')
+                  .in('id', batchIds);
+                  
+                if (!batchError && postsBatch) {
+                  postsBatch.forEach(post => {
+                    postsData.set(post.id, { 
+                      ups: post.ups || 0,
+                      num_comments: post.num_comments || 0,
+                      url: post.url || undefined
+                    });
                   });
-                });
+                }
+              } catch (batchError) {
+                console.warn(`Error fetching batch ${Math.floor(i/batchSize)}:`, batchError);
               }
             }
           } catch (upvotesError) {
@@ -290,12 +278,11 @@ export default function FeatureInsights() {
           }
         }
         
-        // Update our predefined features with the data we've gathered
+        // Update predefined features with the data
         const updatedFeatures = features.map(feature => {
           const featureData = featureMap.get(feature.name);
           
           if (!featureData) {
-            // Feature not found in results
             return { ...feature, isLoading: false };
           }
           
@@ -309,40 +296,38 @@ export default function FeatureInsights() {
             isTopCommented: false
           }));
           
-          // Sort all quotes by upvotes for display
-          const allSortedQuotes = [...quotesWithData].sort((a, b) => b.postUpvotes - a.postUpvotes);
+          // Sort quotes by upvotes
+          const sortedQuotes = [...quotesWithData].sort((a, b) => b.postUpvotes - a.postUpvotes);
           
-          // Mark top upvoted
-          if (allSortedQuotes.length > 0) {
-            allSortedQuotes.slice(0, 3).forEach(quote => {
+          // Mark top upvoted and commented
+          if (sortedQuotes.length > 0) {
+            sortedQuotes.slice(0, 3).forEach(quote => {
               quote.isTopUpvoted = true;
             });
           }
           
-          // Mark top commented
-          const commentSortedQuotes = [...quotesWithData].sort((a, b) => (b.commentCount || 0) - (a.commentCount || 0));
-          if (commentSortedQuotes.length > 0) {
-            commentSortedQuotes.slice(0, 2).forEach(quote => {
+          const commentSorted = [...quotesWithData].sort((a, b) => (b.commentCount || 0) - (a.commentCount || 0));
+          if (commentSorted.length > 0) {
+            commentSorted.slice(0, 2).forEach(quote => {
               quote.isTopCommented = true;
             });
           }
           
           return {
             ...feature,
-            quotes: allSortedQuotes, // Keep all quotes instead of limiting to 5
+            quotes: sortedQuotes,
             mentionCount: featureData.mentionCount,
             isLoading: false
           };
         });
         
-        // Sort by mention count from highest to lowest
+        // Sort by mention count
         updatedFeatures.sort((a, b) => b.mentionCount - a.mentionCount);
         
         setFeatures(updatedFeatures);
       } catch (err: any) {
         console.error('Full error object:', err);
         setError(err.message || 'An unexpected error occurred while fetching feature data.');
-        // Still update loading state on features
         setFeatures(features.map(f => ({ ...f, isLoading: false })));
       } finally {
         setDataLoading(false);
