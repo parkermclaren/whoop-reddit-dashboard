@@ -33,7 +33,7 @@ interface BubbleData {
   name: string;
   sentiment: string;
   sentimentStats: SentimentStats;
-  quotes: string[];
+  quotes: { text: string; upvotes: number }[];
 }
 
 // Type for the feature tooltip
@@ -116,6 +116,11 @@ export default function FeatureAspectCloud() {
   const consolidateFeature = (featureName: string): string => {
     const normalizedName = featureName.toLowerCase().trim();
     
+    // Filter out non-feature terms
+    if (normalizedName.includes('advanced labs') || normalizedName.includes('strain')) {
+      return ''; // Return empty string to filter out
+    }
+    
     // Consolidate outlook-related features under AI
     if (normalizedName.includes('outlook')) {
       return 'ai assistant';
@@ -124,6 +129,16 @@ export default function FeatureAspectCloud() {
     // Consolidate sleep-related features under Sleep
     if (normalizedName.includes('sleep')) {
       return 'improved sleep performance';
+    }
+    
+    // Consolidate auto-detected activities variations
+    if (normalizedName.includes('auto') && normalizedName.includes('detect')) {
+      return 'improved auto-detected activities';
+    }
+    
+    // Consolidate heart rhythm monitoring features
+    if (normalizedName.includes('irregular') || normalizedName.includes('ecg') || normalizedName.includes('electrocardiogram')) {
+      return 'ecg';
     }
     
     return normalizedName;
@@ -135,6 +150,25 @@ export default function FeatureAspectCloud() {
     return featureNameMap[normalizedName] || fullName;
   };
 
+  // Title formatter that preserves known acronyms (e.g., ECG, HRV) and title-cases others
+  const formatTitle = (name: string): string => {
+    const upper = name.toUpperCase();
+    // Preserve common acronyms if the entire name is an acronym
+    if (upper === 'ECG' || upper === 'HRV' || upper === 'AI' || upper === 'BP') {
+      return upper;
+    }
+    // Title-case words while preserving known acronyms within words
+    return name.split(/[\s\/\-]+/).map(word => {
+      if (!word) return word; // Handle empty strings from multiple separators
+      const lowerWord = word.toLowerCase();
+      if (['ecg', 'hrv', 'ai', 'bp', 'whoop'].includes(lowerWord)) {
+        return lowerWord.toUpperCase();
+      }
+      // For other words, title-case them, ensuring the rest of the word is lowercase
+      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+    }).join(' ');
+  };
+
   useEffect(() => {
     async function fetchFeatureAspectData() {
       try {
@@ -142,7 +176,7 @@ export default function FeatureAspectCloud() {
         
         const { data, error } = await supabase
           .from('analysis_results')
-          .select('aspects, sentiment')
+          .select('aspects, sentiment, content_id')
           .not('aspects', 'is', null)
           .not('aspects', 'eq', '[]');
           
@@ -151,9 +185,26 @@ export default function FeatureAspectCloud() {
         const featureFrequency: Record<string, { 
           count: number; 
           sentiments: SentimentStats;
-          quotes: string[];
+          quotes: { text: string; upvotes: number }[];
           originalName: string; // Store the original name for display
         }> = {};
+        
+        // Build a map of post upvotes for efficient lookup
+        const contentIds: string[] = Array.from(new Set((data || []).map((row: any) => row.content_id).filter(Boolean)));
+        const postUpvotesMap = new Map<string, number>();
+        if (contentIds.length > 0) {
+          const batchSize = 100; // avoid IN() limits
+          for (let i = 0; i < contentIds.length; i += batchSize) {
+            const batchIds = contentIds.slice(i, i + batchSize);
+            const { data: postsData } = await supabase
+              .from('reddit_posts')
+              .select('id, ups')
+              .in('id', batchIds);
+            if (postsData) {
+              postsData.forEach((p: any) => postUpvotesMap.set(p.id, p.ups || 0));
+            }
+          }
+        }
         
         data.forEach(item => {
           if (item.aspects && item.aspects.length > 0) {
@@ -161,6 +212,9 @@ export default function FeatureAspectCloud() {
               // First consolidate the feature, then normalize
               const originalName = aspect.feature.trim();
               const consolidatedName = consolidateFeature(originalName);
+              
+              // Skip features that were filtered out
+              if (!consolidatedName) return;
               
               if (!featureFrequency[consolidatedName]) {
                 featureFrequency[consolidatedName] = { 
@@ -178,9 +232,17 @@ export default function FeatureAspectCloud() {
                 featureFrequency[consolidatedName].sentiments[sentiment] += 1;
               }
               
-              // Store up to 3 quotes per feature
-              if (aspect.quote && featureFrequency[consolidatedName].quotes.length < 3) {
-                featureFrequency[consolidatedName].quotes.push(aspect.quote);
+              // Store up to 3 quotes per feature, with upvotes if available on analysis result
+              if (aspect.quote && aspect.quote.trim().length > 0) {
+                const upvotes = postUpvotesMap.get((item as any).content_id) || 0;
+                const quotesArr = featureFrequency[consolidatedName].quotes;
+                // Deduplicate by text to avoid near-duplicates from same post
+                if (!quotesArr.some(q => q.text === aspect.quote.trim())) {
+                  quotesArr.push({ text: aspect.quote.trim(), upvotes });
+                }
+                // Keep only the top 2 by upvotes to stay memory/token efficient
+                quotesArr.sort((a, b) => (b.upvotes || 0) - (a.upvotes || 0));
+                if (quotesArr.length > 2) quotesArr.length = 2;
               }
             });
           }
@@ -331,13 +393,29 @@ export default function FeatureAspectCloud() {
       .append('g')
       .attr('class', 'node')
       .style('cursor', 'pointer')
-      .on('mouseover', function(event, d) {
-        // Get position relative to the container
-        const svgRect = svgRef.current?.getBoundingClientRect();
-        if (!svgRect) return;
-        
-        const xPos = event.clientX - svgRect.left;
-        const yPos = event.clientY - svgRect.top;
+      .on('click', function(event, d: any) {
+        try {
+          // Dispatch selection to FeatureInsights
+          window.dispatchEvent(new CustomEvent('select-feature', {
+            detail: { feature: d?.name }
+          }));
+          // Smooth scroll to Feature-Feedback section
+          const target = document.getElementById('Feature-Feedback');
+          if (target) {
+            target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }
+          // Update hash for deep-linking
+          if (typeof history !== 'undefined' && history.replaceState) {
+            history.replaceState(null, '', '#Feature-Feedback');
+          }
+          // Hide tooltip after click
+          setTooltip(prev => ({ ...prev, visible: false }));
+        } catch {}
+      })
+      .on('mouseenter', function(event, d) {
+        // Use viewport-relative coordinates for fixed tooltips
+        const xPos = event.clientX;
+        const yPos = event.clientY;
         
         setTooltip({
           feature: d,
@@ -345,7 +423,7 @@ export default function FeatureAspectCloud() {
           visible: true
         });
       })
-      .on('mouseout', function() {
+      .on('mouseleave', function() {
         setTooltip(prev => ({ ...prev, visible: false }));
       });
     
@@ -410,37 +488,49 @@ export default function FeatureAspectCloud() {
     
     return (
       <div 
-        className="absolute z-10 bg-gray-800 p-3 rounded-md shadow-lg border border-gray-700 max-w-xs"
+        className="fixed z-[9999] bg-gray-800 p-4 rounded-lg shadow-xl border border-gray-600 min-w-[320px] max-w-md pointer-events-none"
         style={{
-          left: `${tooltip.position.x + 10}px`,
-          top: `${tooltip.position.y - 10}px`,
+          left: `${tooltip.position.x + 14}px`,
+          top: `${tooltip.position.y + 14}px`,
         }}
       >
-        <h3 className="font-medium text-white text-sm mb-1">{feature.name}</h3>
-        <div className="text-xs text-gray-300 mb-2">{feature.value} mentions</div>
+        <h3 className="font-semibold text-white text-base mb-2">{formatTitle(feature.name)}</h3>
+        <div className="text-sm text-gray-300 mb-3">{feature.value} mentions</div>
         
-        <div className="mb-2">
-          <div className="flex justify-between mb-1">
-            <span className="text-xs text-gray-400">Sentiment breakdown:</span>
-          </div>
-          <div className="flex h-3 mb-1 rounded overflow-hidden">
+        <div className="mb-3">
+          <div className="text-xs text-gray-400 mb-2">Sentiment breakdown:</div>
+          <div className="flex h-3 mb-3 rounded-full overflow-hidden">
             <div style={{ width: `${positivePercent}%`, backgroundColor: '#44d7b6' }}></div>
             <div style={{ width: `${neutralPercent}%`, backgroundColor: '#b4b4b4' }}></div>
             <div style={{ width: `${negativePercent}%`, backgroundColor: '#e25e5e' }}></div>
           </div>
-          <div className="flex justify-between text-xs text-gray-400">
-            <span>Positive: {sentimentStats.positive} ({positivePercent}%)</span>
-            <span>Neutral: {sentimentStats.neutral} ({neutralPercent}%)</span>
-            <span>Negative: {sentimentStats.negative} ({negativePercent}%)</span>
+          <div className="grid grid-cols-3 gap-4 text-xs text-gray-300">
+            <div className="text-center">
+              <div className="font-medium" style={{ color: '#44d7b6' }}>Positive</div>
+              <div>{sentimentStats.positive} ({positivePercent}%)</div>
+            </div>
+            <div className="text-center">
+              <div className="text-gray-400 font-medium">Neutral</div>
+              <div>{sentimentStats.neutral} ({neutralPercent}%)</div>
+            </div>
+            <div className="text-center">
+              <div className="text-red-400 font-medium">Negative</div>
+              <div>{sentimentStats.negative} ({negativePercent}%)</div>
+            </div>
           </div>
         </div>
         
         {feature.quotes && feature.quotes.length > 0 && (
           <div>
-            <div className="text-xs text-gray-400 mb-1">Sample quotes:</div>
-            <ul className="list-disc pl-4">
-              {feature.quotes.slice(0, 2).map((quote, i) => (
-                <li key={i} className="text-xs text-gray-300 mb-1">{quote}</li>
+            <div className="text-xs text-gray-400 mb-2">Sample quotes:</div>
+            <ul className="space-y-2">
+              {feature.quotes
+                .sort((a, b) => (b.upvotes || 0) - (a.upvotes || 0))
+                .slice(0, 2)
+                .map((q, i) => (
+                <li key={i} className="text-xs text-gray-300 bg-gray-700 p-2 rounded border-l-2 border-gray-500">
+                  "{q.text}"
+                </li>
               ))}
             </ul>
           </div>

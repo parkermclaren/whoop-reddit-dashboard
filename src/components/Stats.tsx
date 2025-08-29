@@ -453,7 +453,7 @@ export default function Stats() {
                 {/* Negative segment */}
                 <div 
                   className="h-full bg-[#ff6384] cursor-pointer relative"
-                  style={{ width: `${sentimentStats?.negative_percent || 49.1}%` }}
+                  style={{ width: `${sentimentStats?.negative_percent || 0}%` }}
                   onMouseEnter={() => setHoverStat('negative')}
                   onMouseLeave={() => setHoverStat(null)}
                 ></div>
@@ -461,7 +461,7 @@ export default function Stats() {
                 {/* Neutral segment */}
                 <div 
                   className="h-full bg-gray-400 cursor-pointer relative"
-                  style={{ width: `${sentimentStats?.neutral_percent || 36.5}%` }}
+                  style={{ width: `${sentimentStats?.neutral_percent || 0}%` }}
                   onMouseEnter={() => setHoverStat('neutral')}
                   onMouseLeave={() => setHoverStat(null)}
                 ></div>
@@ -469,7 +469,7 @@ export default function Stats() {
                 {/* Positive segment */}
                 <div 
                   className="h-full bg-[#44d7b6] cursor-pointer relative"
-                  style={{ width: `${sentimentStats?.positive_percent || 14.4}%` }}
+                  style={{ width: `${sentimentStats?.positive_percent || 0}%` }}
                   onMouseEnter={() => setHoverStat('positive')}
                   onMouseLeave={() => setHoverStat(null)}
                 ></div>
@@ -481,10 +481,10 @@ export default function Stats() {
                   className="absolute -top-8 bg-black text-white text-xs py-1 px-2 rounded whitespace-nowrap pointer-events-none"
                   style={{ 
                     left: hoverStat === 'negative' 
-                      ? `${(sentimentStats?.negative_percent || 49.1) / 2}%` 
+                      ? `${(sentimentStats?.negative_percent || 0) / 2}%` 
                       : hoverStat === 'neutral' 
-                        ? `${(sentimentStats?.negative_percent || 49.1) + ((sentimentStats?.neutral_percent || 36.5) / 2)}%` 
-                        : `${(sentimentStats?.negative_percent || 49.1) + (sentimentStats?.neutral_percent || 36.5) + ((sentimentStats?.positive_percent || 14.4) / 2)}%`,
+                        ? `${(sentimentStats?.negative_percent || 0) + ((sentimentStats?.neutral_percent || 0) / 2)}%` 
+                        : `${(sentimentStats?.negative_percent || 0) + (sentimentStats?.neutral_percent || 0) + ((sentimentStats?.positive_percent || 0) / 2)}%`,
                     transform: 'translateX(-50%)'
                   }}
                 >
@@ -533,7 +533,7 @@ export default function Stats() {
       <div className="bg-[#24262b] rounded-xl p-6 shadow-lg">
         <h3 className="text-sm text-gray-400 uppercase mb-1">Announcement Relevance</h3>
         <div className="flex items-end">
-          <div className="text-4xl font-bold">{announcementRelatedPercent || 79}%</div>
+          <div className="text-4xl font-bold">{announcementRelatedPercent ? `${announcementRelatedPercent}%` : '...'}</div>
         </div>
         <p className="text-xs text-gray-400 mt-2">discussed the May 8th product launch</p>
       </div>

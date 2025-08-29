@@ -98,7 +98,7 @@ const PREDEFINED_FEATURES: FeatureData[] = [
     isLoading: true
   },
   {
-    name: 'improved Sleep Performance',
+    name: 'Improved Sleep Performance',
     icon: <Moon className="w-6 h-6 text-white" />,
     quotes: [],
     mentionCount: 0,
@@ -126,15 +126,8 @@ const PREDEFINED_FEATURES: FeatureData[] = [
     isLoading: true
   },
   {
-    name: 'improved Auto-Detected Activities',
+    name: 'Improved Auto-Detected Activities',
     icon: <Dumbbell className="w-6 h-6 text-white" />,
-    quotes: [],
-    mentionCount: 0,
-    isLoading: true
-  },
-  {
-    name: 'Irregular Heart Rhythm',
-    icon: <HeartPulse className="w-6 h-6 text-white" />,
     quotes: [],
     mentionCount: 0,
     isLoading: true
@@ -154,15 +147,14 @@ const shortenFeatureName = (name: string) => {
     'Blood Pressure': 'Blood Pressure',
     'Improved Sensor accuracy': 'Sensor Accuracy',
     'Battery Pack 5.0': 'Battery Pack 5.0',
-    'ECG': 'ECG',
+    'ECG': 'ECG/Heart Rhythm',
     'Healthspan/WHOOP Age': 'WHOOP Age',
     'Improved Step Counter': 'Step Counter',
-    'improved Sleep Performance': 'Sleep',
+    'Improved Sleep Performance': 'Sleep',
     'Women\'s Hormonal Insights': 'Hormonal Insights',
     'Stress Monitor': 'Stress Monitor',
     'HRV calibration': 'HRV Calibration',
-    'improved Auto-Detected Activities': 'Auto Activities',
-    'Irregular Heart Rhythm': 'Heart Rhythm',
+    'Improved Auto-Detected Activities': 'Auto Activities',
     'AI Assistant': 'AI Assistant'
   };
   
@@ -175,6 +167,25 @@ export default function FeatureInsights() {
   const [error, setError] = useState<string | null>(null);
   const [selectedFeature, setSelectedFeature] = useState<string>('Blood Pressure');
   const [activeSentiment, setActiveSentiment] = useState<'all' | 'positive' | 'neutral' | 'negative'>('all');
+
+  // Listen for feature selection events from other components (e.g., KeywordCloud)
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const custom = e as CustomEvent<{ feature?: string }>;
+      const incoming = custom.detail?.feature;
+      if (!incoming) return;
+      // Prefer exact match; fall back to case-insensitive match
+      const exact = features.find(f => f.name === incoming);
+      if (exact) {
+        setSelectedFeature(exact.name);
+        return;
+      }
+      const ci = features.find(f => f.name.toLowerCase() === String(incoming).toLowerCase());
+      if (ci) setSelectedFeature(ci.name);
+    };
+    window.addEventListener('select-feature', handler as EventListener);
+    return () => window.removeEventListener('select-feature', handler as EventListener);
+  }, [features]);
 
   useEffect(() => {
     const fetchFeatureData = async () => {
@@ -209,11 +220,26 @@ export default function FeatureInsights() {
           featureMap.set(feature.name, { quotes: [], mentionCount: 0 });
         });
         
+        // Consolidation helper to align with KeywordCloud
+        const consolidateFeature = (name: string): string => {
+          const normalized = (name || '').toLowerCase();
+          if (normalized.includes('irregular') || normalized.includes('ecg') || normalized.includes('electrocardiogram')) {
+            return 'ECG';
+          }
+          if (normalized.includes('auto') && normalized.includes('detect')) {
+            return 'Improved Auto-Detected Activities';
+          }
+          if (normalized.includes('sleep')) {
+            return 'Improved Sleep Performance';
+          }
+          return name;
+        };
+
         // Process all results directly
         analysisResults.forEach(result => {
           if (result.aspects && Array.isArray(result.aspects)) {
             result.aspects.forEach((aspect: any) => {
-              const featureName = aspect.feature;
+              const featureName = consolidateFeature(aspect.feature);
               const quote = aspect.quote;
               const sentiment = aspect.sentiment;
               
@@ -321,10 +347,12 @@ export default function FeatureInsights() {
           };
         });
         
+        // Remove any features with zero mentions to maintain a clean grid
+        const compactFeatures = updatedFeatures.filter(f => f.mentionCount > 0 || PREDEFINED_FEATURES.some(p => p.name === f.name));
         // Sort by mention count
-        updatedFeatures.sort((a, b) => b.mentionCount - a.mentionCount);
+        compactFeatures.sort((a, b) => b.mentionCount - a.mentionCount);
         
-        setFeatures(updatedFeatures);
+        setFeatures(compactFeatures);
       } catch (err: any) {
         console.error('Full error object:', err);
         setError(err.message || 'An unexpected error occurred while fetching feature data.');
@@ -355,7 +383,7 @@ export default function FeatureInsights() {
   );
 
   return (
-    <div className="flex flex-col md:flex-row space-y-4 md:space-y-0 md:space-x-6">
+    <div id="Feature-Feedback" className="flex flex-col md:flex-row space-y-4 md:space-y-0 md:space-x-6">
       {/* Left side - Feature Grid */}
       <div className="md:w-1/2">
         <div className="grid grid-cols-3 gap-3">
@@ -394,7 +422,7 @@ export default function FeatureInsights() {
             {selectedFeatureData.icon}
           </div>
           <div>
-            <h2 className="font-medium text-lg text-white">{selectedFeatureData.name}</h2>
+            <h2 className="font-medium text-lg text-white">{selectedFeatureData.name === 'ECG' ? 'ECG/Heart Rhythm' : selectedFeatureData.name}</h2>
             {selectedFeatureData.isLoading ? (
               <div className="h-4 w-24 bg-gray-700 animate-pulse rounded"></div>
             ) : (
