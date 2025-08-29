@@ -440,8 +440,20 @@ export default function Stats() {
           <div className="h-[70px] flex items-center justify-center">Loading...</div>
         ) : (
           <>
-            <div className="mb-4 text-xl font-bold">
-              {sentimentStats?.negative_percent}% Negative
+            {/* Percentage labels above the bar */}
+            <div className="flex justify-between mb-3">
+              <div className="text-center">
+                <div className="text-lg font-bold text-[#ff6384]">{sentimentStats?.negative_percent}%</div>
+                <div className="text-xs text-gray-400">Negative</div>
+              </div>
+              <div className="text-center">
+                <div className="text-lg font-bold text-gray-400">{sentimentStats?.neutral_percent}%</div>
+                <div className="text-xs text-gray-400">Neutral</div>
+              </div>
+              <div className="text-center">
+                <div className="text-lg font-bold text-[#44d7b6]">{sentimentStats?.positive_percent}%</div>
+                <div className="text-xs text-gray-400">Positive</div>
+              </div>
             </div>
             
             {/* Thin bar container */}
@@ -494,11 +506,7 @@ export default function Stats() {
               )}
             </div>
             
-            <div className="flex justify-between text-xs text-gray-400">
-              <span>Negative</span>
-              <span>Neutral</span>
-              <span>Positive</span>
-            </div>
+
           </>
         )}
       </div>

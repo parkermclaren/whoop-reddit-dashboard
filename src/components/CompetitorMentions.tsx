@@ -42,61 +42,68 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 
 // Mapping for normalizing competitor names (grouping similar names)
 const normalizeCompetitorName = (name: string): string | null => {
-  const lowerName = name.toLowerCase().trim();
+  // Normalize accents and convert to lowercase
+  const normalizedName = name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
   
   // Filter out WHOOP since it's not a competitor to itself
-  if (lowerName.includes('whoop')) return null;
+  if (normalizedName.includes('whoop')) return null;
   
   // Apple Watch variations
-  if (lowerName.includes('apple')) return 'Apple Watch';
+  if (normalizedName.includes('apple')) return 'Apple Watch';
   
   // Samsung Watch variations
-  if (lowerName.includes('samsung') || lowerName.includes('galaxy')) return 'Samsung Watch';
+  if (normalizedName.includes('samsung') || normalizedName.includes('galaxy')) return 'Samsung Watch';
   
   // Google Pixel Watch variations
-  if (lowerName.includes('google') || lowerName.includes('pixel')) return 'Google Pixel Watch';
+  if (normalizedName.includes('google') || normalizedName.includes('pixel')) return 'Google Pixel Watch';
   
   // COROS variations
-  if (lowerName === 'coros' || name.toUpperCase() === 'COROS') return 'COROS';
+  if (normalizedName === 'coros' || name.toUpperCase() === 'COROS') return 'COROS';
   
   // Garmin variations
-  if (lowerName.includes('garmin')) return 'Garmin';
+  if (normalizedName.includes('garmin')) return 'Garmin';
   
   // Fitbit variations
-  if (lowerName.includes('fitbit')) return 'Fitbit';
+  if (normalizedName.includes('fitbit')) return 'Fitbit';
   
   // Oura variations
-  if (lowerName.includes('oura')) return 'Oura';
+  if (normalizedName.includes('oura')) return 'Oura';
   
   // Suunto variations
-  if (lowerName.includes('suunto')) return 'Suunto';
+  if (normalizedName.includes('suunto')) return 'Suunto';
   
   // Amazfit variations
-  if (lowerName.includes('amazfit')) return 'Amazfit';
+  if (normalizedName.includes('amazfit')) return 'Amazfit';
   
   // Withings variations
-  if (lowerName.includes('withings')) return 'Withings';
+  if (normalizedName.includes('withings')) return 'Withings';
   
   // Polar variations
-  if (lowerName.includes('polar')) return 'Polar';
+  if (normalizedName.includes('polar')) return 'Polar';
   
   // Eight Sleep variations
-  if (lowerName.includes('eight sleep')) return 'Eight Sleep';
+  if (normalizedName.includes('eight sleep')) return 'Eight Sleep';
   
   // KardiaMobile/AliveCor variations
-  if (lowerName.includes('kardia') || lowerName.includes('alivecor')) return 'KardiaMobile';
+  if (normalizedName.includes('kardia') || normalizedName.includes('alivecor')) return 'KardiaMobile';
   
   // QardioCore variations
-  if (lowerName.includes('qardio')) return 'QardioCore';
+  if (normalizedName.includes('qardio')) return 'QardioCore';
   
   // Pulse variations
-  if (lowerName === 'pulse') return 'Pulse';
+  if (normalizedName === 'pulse') return 'Pulse';
   
   // sense.ai variations
-  if (lowerName.includes('sense.ai') || lowerName.includes('sense ai')) return 'sense.ai';
+  if (normalizedName.includes('sense.ai') || normalizedName.includes('sense ai')) return 'sense.ai';
   
   // Zyke variations
-  if (lowerName.includes('zyke')) return 'Zyke';
+  if (normalizedName.includes('zyke')) return 'Zyke';
+  
+  // Orangetheory variations
+  if (normalizedName.includes('orangetheory') || normalizedName.includes('orange theory')) return 'Orangetheory';
+  
+  // Helio Band variations
+  if (normalizedName.includes('helio') || normalizedName.includes('helios')) return 'Helio Band';
   
   return name;
 };
@@ -118,15 +125,17 @@ const competitorLogos: Record<string, string> = {
   'QardioCore': '/logos/qlogo.png',
   'Polar': '/logos/Polar-logo-300x125.png',
   'Google Pixel Watch': '/logos/Google__G__logo.svg.webp',
+  'Orangetheory': '',
+  'Helio Band': '',
   'sense.ai': '',
   'Zyke': ''
 };
 
 // Default text logo component for competitors without an image
 const DefaultTextLogo = ({ name }: { name: string }) => (
-  <div className="w-full h-full flex items-center justify-center text-white font-bold text-lg">
-    {name}
-  </div>
+                    <div className="w-full h-full flex items-center justify-center text-white font-bold text-base">
+                    {name}
+                  </div>
 );
 
 export default function CompetitorMentions() {
@@ -314,7 +323,7 @@ export default function CompetitorMentions() {
     <div className="flex flex-col md:flex-row space-y-4 md:space-y-0 md:space-x-6">
       {/* Left side - Competitor Grid */}
       <div className="md:w-1/2">
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-3 gap-2 max-h-[440px] overflow-y-auto pr-2">
           {competitors.map((competitor) => {
             // Determine if this logo needs a white background
             const needsWhiteBackground = ['Amazfit', 'Withings', 'Polar', 'QardioCore'].includes(competitor.name);
@@ -328,19 +337,19 @@ export default function CompetitorMentions() {
             return (
               <div 
                 key={competitor.name}
-                className={`bg-[#2c2e33] rounded-lg p-3 transition-all duration-200 cursor-pointer ${
+                className={`bg-[#2c2e33] rounded-lg p-2 transition-all duration-200 cursor-pointer ${
                   selectedCompetitor === competitor.name ? 'ring-2 ring-blue-500 bg-[#33363c]' : 'hover:bg-[#33363c]'
-                } relative group h-24 flex items-center justify-center`}
+                } relative group h-20 flex items-center justify-center`}
                 onClick={() => setSelectedCompetitor(competitor.name)}
               >
                 <div className={`w-full h-full flex items-center justify-center overflow-hidden ${
-                  needsWhiteBackground ? 'bg-white rounded-xl' : ''
+                  needsWhiteBackground ? 'bg-white rounded-lg' : ''
                 } ${needsCircle ? 'rounded-full' : ''}`}>
                   {hasLogo ? (
                     <img 
                       src={competitor.logo} 
                       alt={`${competitor.name} logo`} 
-                      className={`object-contain ${needsLargerSize ? 'w-20 h-20' : 'w-16 h-16'}`}
+                      className={`object-contain ${needsLargerSize ? 'w-16 h-16' : 'w-14 h-14'}`}
                       onError={(e) => {
                         const target = e.target as HTMLImageElement;
                         // If image fails to load, fallback to text logo
@@ -349,7 +358,7 @@ export default function CompetitorMentions() {
                           parent.innerHTML = '';
                           parent.appendChild(
                             Object.assign(document.createElement('div'), {
-                              className: 'w-full h-full flex items-center justify-center text-white font-bold text-lg',
+                              className: 'w-full h-full flex items-center justify-center text-white font-bold text-base',
                               textContent: competitor.name
                             })
                           );
@@ -375,10 +384,10 @@ export default function CompetitorMentions() {
       </div>
 
       {/* Right side - Detail View */}
-      <div className="md:w-1/2 bg-[#2c2e33] rounded-lg p-4">
+      <div className="md:w-1/2 bg-[#2c2e33] rounded-lg p-3">
         {selectedCompetitorData && (
           <>
-            <div className="flex items-center space-x-3 mb-4 border-b border-gray-700 pb-3">
+            <div className="flex items-center space-x-3 mb-3 border-b border-gray-700 pb-2">
               <div className={`w-10 h-10 flex items-center justify-center overflow-hidden ${
                 ['Amazfit', 'Withings', 'Polar', 'QardioCore'].includes(selectedCompetitorData.name) ? 'bg-white rounded-full' : ''
               } ${['Oura', 'KardiaMobile', 'Eight Sleep'].includes(selectedCompetitorData.name) ? 'rounded-full' : ''}`}>
@@ -435,7 +444,7 @@ export default function CompetitorMentions() {
               </div>
             </div>
 
-            <div className="space-y-3 max-h-[500px] overflow-y-auto pr-2">
+            <div className="space-y-2 max-h-[400px] overflow-y-auto pr-2">
               {selectedCompetitorData.quotes.length > 0 ? (
                 selectedCompetitorData.quotes.map((quote, index) => (
                   <a 
@@ -443,7 +452,7 @@ export default function CompetitorMentions() {
                     href={quote.postUrl || '#'} 
                     target="_blank" 
                     rel="noopener noreferrer"
-                    className="block bg-[#24262b] rounded p-3 hover:bg-[#2c2e33] transition-colors"
+                    className="block bg-[#24262b] rounded p-2 hover:bg-[#2c2e33] transition-colors"
                   >
                     <div className="flex items-start">
                       <div className={`w-2 h-2 rounded-full flex-shrink-0 mt-1.5 mr-2 ${

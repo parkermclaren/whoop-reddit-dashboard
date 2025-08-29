@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "WHOOP Community Pulse",
+  title: "WHOOP Reddit Pulse",
   description: "AI-powered dashboard analyzing WHOOP community sentiment and product feedback",
 };
 

@@ -57,11 +57,11 @@ export default function Home() {
           {/* Centered content */}
           <div className="relative z-10 text-center max-w-4xl mx-auto py-4">
             <h1 className="text-5xl font-bold mb-4 text-white">
-              <span className="text-[#44d7b6]">Voice of WHOOP Users,</span> <span className="text-white">Decoded by AI</span>
+              <span className="text-[#44d7b6]">WHOOP Reddit Sentiment,</span> <span className="text-white">Decoded by AI</span>
             </h1>
             
             <p className="text-lg text-gray-200 leading-relaxed mb-6 max-w-3xl mx-auto">
-              Transforming conversations from <a href="https://www.reddit.com/r/whoop/" target="_blank" rel="noopener noreferrer" className="text-[#44d7b6] hover:underline">r/whoop</a> into actionable insights following the <a href="https://www.youtube.com/watch?v=rZm8VHPkPoI" target="_blank" rel="noopener noreferrer" className="text-[#44d7b6] hover:underline">Unlocked 2025</a> announcement on May 8, 2025.
+              Transforming conversations from <a href="https://www.reddit.com/r/whoop/" target="_blank" rel="noopener noreferrer" className="text-[#44d7b6] hover:underline">r/WHOOP</a> into actionable insights
             </p>
             
             {/* Collapsible details button styled as a button instead of details/summary */}

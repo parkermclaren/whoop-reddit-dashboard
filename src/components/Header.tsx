@@ -112,7 +112,7 @@ export default function Header() {
               </svg>
             )}
           </button>
-          <h1 className="text-white uppercase tracking-wider font-semibold">WHOOP COMMUNITY PULSE</h1>
+          <h1 className="text-white uppercase tracking-wider font-semibold">WHOOP REDDIT PULSE</h1>
         </div>
         
         {/* Desktop Navigation Links */}
