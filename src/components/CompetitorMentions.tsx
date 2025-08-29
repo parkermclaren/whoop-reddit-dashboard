@@ -323,7 +323,7 @@ export default function CompetitorMentions() {
     <div className="flex flex-col md:flex-row space-y-4 md:space-y-0 md:space-x-6">
       {/* Left side - Competitor Grid */}
       <div className="md:w-1/2">
-        <div className="grid grid-cols-3 gap-2 max-h-[440px] overflow-y-auto pr-2">
+        <div className="grid grid-cols-3 gap-2 max-h-[480px] overflow-y-auto pr-2">
           {competitors.map((competitor) => {
             // Determine if this logo needs a white background
             const needsWhiteBackground = ['Amazfit', 'Withings', 'Polar', 'QardioCore'].includes(competitor.name);
