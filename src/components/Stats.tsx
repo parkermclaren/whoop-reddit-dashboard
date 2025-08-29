@@ -29,8 +29,8 @@ export default function Stats() {
   const [loading, setLoading] = useState(true);
   const [hoverStat, setHoverStat] = useState<'negative' | 'neutral' | 'positive' | null>(null);
   const [announcementRelatedPercent, setAnnouncementRelatedPercent] = useState<number | null>(null);
-  const [peakActivityPostCount, setPeakActivityPostCount] = useState<number>(392);
-  const [postsLast24Hours, setPostsLast24Hours] = useState<number>(146);
+  const [peakActivityPostCount, setPeakActivityPostCount] = useState<number>(0);
+  const [postsLast24Hours, setPostsLast24Hours] = useState<number>(0);
   
   // Theme state has been simplified to just hold display data
   const [topTheme, setTopTheme] = useState<{
@@ -185,17 +185,8 @@ export default function Stats() {
         });
       } catch (err) {
         console.error('Error fetching sentiment stats:', err);
-        // Fallback to static data on error
-        setSentimentStats({
-          avg_sentiment_score: -0.25,
-          positive_count: 112,
-          neutral_count: 284,
-          negative_count: 382,
-          total_count: 778,
-          positive_percent: 14.4,
-          neutral_percent: 36.5,
-          negative_percent: 49.1
-        });
+        // Don't set fallback data on error - let it remain null
+        console.error('Failed to fetch sentiment stats, showing loading state');
       } finally {
         setLoading(false);
       }
@@ -247,8 +238,8 @@ export default function Stats() {
         setPeakActivityPostCount(totalPeakPosts);
       } catch (err) {
         console.error('Error fetching announcement related stats:', err);
-        // Fallback to a default value
-        setAnnouncementRelatedPercent(68.5);
+        // Don't set fallback data on error
+        console.error('Failed to fetch announcement stats');
       }
     };
     
@@ -271,7 +262,7 @@ export default function Stats() {
         }
       } catch (err) {
         console.error('Error fetching recent posts:', err);
-        // Keep the default value
+        // Keep the value as 0
       }
     };
 
@@ -293,12 +284,8 @@ export default function Stats() {
         }
         
         if (!analysisResults || analysisResults.length === 0) {
-          // Default to fallback data if no results
-          setTopTheme({
-            name: 'Battery Life',
-            sentiment: 'negative',
-            percentage: 32
-          });
+                  // Don't set fallback data if no results
+        setTopTheme(null);
           return;
         }
         
@@ -424,7 +411,7 @@ export default function Stats() {
       <div className="bg-[#24262b] rounded-xl p-6 shadow-lg">
         <h3 className="text-sm text-gray-400 uppercase mb-1">Total Posts Since Unlocked</h3>
         <div className="flex items-end">
-          <div className="text-4xl font-bold">{sentimentStats?.total_count || 780}</div>
+          <div className="text-4xl font-bold">{sentimentStats?.total_count ? sentimentStats.total_count.toLocaleString() : '...'}</div>
         </div>
         <p className="text-xs text-gray-400 mt-2">
           <span className="text-sm text-green-500 mr-1">{postsLast24Hours}</span>

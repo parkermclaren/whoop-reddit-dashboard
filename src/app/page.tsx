@@ -57,7 +57,8 @@ export default function Home() {
           {/* Centered content */}
           <div className="relative z-10 text-center max-w-4xl mx-auto py-4">
             <h1 className="text-5xl font-bold mb-4 text-white">
-              <span className="text-[#44d7b6]">WHOOP Reddit Sentiment,</span> <span className="text-white">Decoded by AI</span>
+              <div className="text-[#44d7b6]">WHOOP Reddit Sentiment</div>
+              <div className="text-white text-3xl mt-2 italic">Decoded by AI</div>
             </h1>
             
             <p className="text-lg text-gray-200 leading-relaxed mb-6 max-w-3xl mx-auto">
