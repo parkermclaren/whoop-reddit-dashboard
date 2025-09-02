@@ -70,20 +70,61 @@ async function updateAllPostMetrics(batchSize = 50, limit?: number, verbose = tr
     
     const now = new Date();
     
-    // Get all posts, oldest first
-    let query = supabase.from('reddit_posts').select('id, reddit_id, created_at, ups, num_comments, title').order('created_at', { ascending: true });
+    // Get total count first
+    const { count: totalPosts, error: countError } = await supabase
+      .from('reddit_posts')
+      .select('*', { count: 'exact', head: true });
     
-    // Apply limit if provided
-    if (limit && limit > 0) {
-      query = query.limit(limit);
+    if (countError) {
+      console.error('Error counting posts:', countError);
+      return false;
     }
     
-    // Execute the query
-    const { data: posts, error: fetchError } = await query;
+    if (!totalPosts || totalPosts === 0) {
+      console.log('No posts found in database');
+      return true;
+    }
     
-    if (fetchError || !posts) {
-      console.error('Error fetching posts:', fetchError);
-      return false;
+    console.log(`Total posts in database: ${totalPosts}`);
+    
+    // Apply limit if provided
+    const postsToProcess = limit && limit > 0 ? Math.min(limit, totalPosts) : totalPosts;
+    console.log(`Will process ${postsToProcess} posts`);
+    
+    // Initialize accumulators
+    let allPosts: any[] = [];
+    let processedRows = 0;
+    const supabaseBatchSize = 1000; // Supabase's max per query
+    
+    // Fetch data in batches to handle pagination
+    while (processedRows < postsToProcess) {
+      const { data: batchData, error: batchError } = await supabase
+        .from('reddit_posts')
+        .select('id, reddit_id, created_at, ups, num_comments, title')
+        .order('created_at', { ascending: true })
+        .range(processedRows, Math.min(processedRows + supabaseBatchSize - 1, postsToProcess - 1));
+      
+      if (batchError) {
+        console.error(`Error fetching batch starting at row ${processedRows}:`, batchError);
+        return false;
+      }
+      
+      if (!batchData) {
+        console.error(`No data returned in batch starting at row ${processedRows}`);
+        return false;
+      }
+      
+      allPosts = [...allPosts, ...batchData];
+      processedRows += supabaseBatchSize;
+      
+      console.log(`Fetched batch: ${allPosts.length}/${postsToProcess} posts loaded`);
+    }
+    
+    const posts = allPosts;
+    
+    if (!posts || posts.length === 0) {
+      console.log('No posts to update');
+      return true;
     }
     
     console.log(`Found ${posts.length} posts to update metrics for`);

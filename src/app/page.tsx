@@ -305,7 +305,7 @@ export default function Home() {
       </div>
       
       {/* Footer */}
-      <footer className="border-t border-gray-800 mt-16 py-12 bg-[#24262b]">
+      <footer id="creator" className="border-t border-gray-800 mt-16 py-12 bg-[#24262b] relative scroll-mt-24">
         <div className="container mx-auto px-4">
           <div className="flex flex-col md:flex-row items-center justify-center md:space-x-12">
             <div className="mb-6 md:mb-0">
