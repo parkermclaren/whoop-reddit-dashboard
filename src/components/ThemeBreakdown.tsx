@@ -36,6 +36,11 @@ type ThemeData = {
   negative_percent: number;
 }
 
+interface ThemeBreakdownProps {
+  fromDate?: string;
+  toDate?: string;
+}
+
 // Main theme order and mapping of terms to themes
 const MAIN_THEME_ORDER = [
   'Subscription Pricing',
@@ -124,7 +129,7 @@ const THEME_MAPPING: Record<string, string> = {
   'battery life': 'Battery Life'
 };
 
-export default function ThemeBreakdown() {
+export default function ThemeBreakdown({ fromDate, toDate }: ThemeBreakdownProps) {
   const [themeData, setThemeData] = useState<ThemeData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -137,100 +142,163 @@ export default function ThemeBreakdown() {
         
         const supabase = createClient();
 
-        // Get all sentiment analysis results for posts
-        const { data: analysisResults, error: analysisError } = await supabase
-          .from('analysis_results')
-          .select('themes, sentiment')
-          .eq('content_type', 'post')
-          .not('themes', 'is', null);
-        
-        if (analysisError) {
-          console.error('Error fetching analysis results:', analysisError);
-          throw analysisError;
-        }
-        
-        if (!analysisResults || analysisResults.length === 0) {
-          setError('No analysis results found with theme data');
-          setLoading(false);
-          return;
-        }
-        
-        // Initialize counters for main themes
-        const themeCounters: Record<string, {
-          positive: number;
-          neutral: number;
-          negative: number;
-          total: number;
-        }> = {};
-        
-        MAIN_THEME_ORDER.forEach(theme => {
-          themeCounters[theme] = {
-            positive: 0,
-            neutral: 0,
-            negative: 0,
-            total: 0
-          };
-        });
-        
-        // Process each analysis result
-        analysisResults.forEach(result => {
-          if (!result.themes || result.themes.length === 0) return;
-          
-          // Get the sentiment of this result
-          const sentiment = result.sentiment || 'neutral';
-          
-          // Find all mapped themes in this result
-          const matchedThemes = new Set<string>();
-          
-          result.themes.forEach((theme: string) => {
-            const mappedTheme = THEME_MAPPING[theme.toLowerCase()];
-            if (mappedTheme) {
-              matchedThemes.add(mappedTheme);
-            }
-          });
-          
-          // Increment counters for each matched theme
-          matchedThemes.forEach(theme => {
-            themeCounters[theme].total += 1;
+        // Step 1: Get post_ids from date range if specified
+        let postIds: string[] | null = null;
+        if (fromDate || toDate) {
+          const allPostIds = [];
+          let offset = 0;
+          const BATCH_SIZE = 1000;
+          let keepFetching = true;
+
+          while (keepFetching) {
+            let postsQuery = supabase.from('reddit_posts').select('id');
+            if (fromDate) postsQuery = postsQuery.gte('created_at', fromDate);
+            if (toDate) postsQuery = postsQuery.lte('created_at', toDate);
             
-            if (sentiment === 'positive') {
-              themeCounters[theme].positive += 1;
-            } else if (sentiment === 'negative') {
-              themeCounters[theme].negative += 1;
+            const { data, error } = await postsQuery.range(offset, offset + BATCH_SIZE - 1);
+            
+            if (error) throw new Error(`Error fetching post IDs: ${error.message}`);
+            
+            if (data && data.length > 0) {
+              allPostIds.push(...data.map(p => p.id));
+              offset += data.length;
             } else {
-              themeCounters[theme].neutral += 1;
+              keepFetching = false;
             }
-          });
-        });
-        
-        // Convert counters to ThemeData array
-        const calculatedThemeData: ThemeData[] = MAIN_THEME_ORDER.map(theme => {
-          const counts = themeCounters[theme];
-          return {
-            grouped_theme: theme,
-            positive_count: counts.positive,
-            neutral_count: counts.neutral,
-            negative_count: counts.negative,
-            total_count: counts.total,
-            positive_percent: counts.total > 0 ? Math.round((counts.positive / counts.total) * 100) : 0,
-            neutral_percent: counts.total > 0 ? Math.round((counts.neutral / counts.total) * 100) : 0,
-            negative_percent: counts.total > 0 ? Math.round((counts.negative / counts.total) * 100) : 0
-          };
-        });
-        
-        // Set the theme data
-        setThemeData(calculatedThemeData);
-        setLoading(false);
+
+            if (data && data.length < BATCH_SIZE) {
+              keepFetching = false;
+            }
+          }
+          postIds = allPostIds;
+
+          if (postIds.length === 0) {
+            setThemeData([]);
+            setLoading(false);
+            return;
+          }
+        }
+
+        const processResults = (analysisResults: any[]) => {
+            if (!analysisResults || analysisResults.length === 0) {
+              setThemeData([]);
+              setLoading(false);
+              return;
+            }
+            
+            const themeCounters: Record<string, {
+              positive: number; neutral: number; negative: number; total: number;
+            }> = {};
+            MAIN_THEME_ORDER.forEach(theme => {
+              themeCounters[theme] = { positive: 0, neutral: 0, negative: 0, total: 0 };
+            });
+            
+            const perPost: Record<string, { themes: Set<string>, sentimentCounts: { positive: number, neutral: number, negative: number } }> = {};
+            analysisResults.forEach((result: any) => {
+                const postId = result.content_id;
+                if (!perPost[postId]) {
+                    perPost[postId] = { themes: new Set(), sentimentCounts: { positive: 0, neutral: 0, negative: 0 } };
+                }
+                const sentiment = result.sentiment || 'neutral';
+                if (sentiment === 'positive') perPost[postId].sentimentCounts.positive++;
+                else if (sentiment === 'neutral') perPost[postId].sentimentCounts.neutral++;
+                else if (sentiment === 'negative') perPost[postId].sentimentCounts.negative++;
+                result.themes.forEach((theme: string) => {
+                    const mappedTheme = THEME_MAPPING[theme.toLowerCase()];
+                    if (mappedTheme) perPost[postId].themes.add(mappedTheme);
+                });
+            });
+
+            Object.values(perPost).forEach(postData => {
+                const s = postData.sentimentCounts;
+                const dominantSentiment = s.positive >= s.neutral && s.positive >= s.negative ? 'positive'
+                  : s.neutral >= s.positive && s.neutral >= s.negative ? 'neutral' : 'negative';
+                postData.themes.forEach(theme => {
+                    themeCounters[theme].total += 1;
+                    if (dominantSentiment === 'positive') themeCounters[theme].positive += 1;
+                    else if (dominantSentiment === 'negative') themeCounters[theme].negative += 1;
+                    else themeCounters[theme].neutral += 1;
+                });
+            });
+            
+            const calculatedThemeData: ThemeData[] = MAIN_THEME_ORDER.map(theme => {
+              const counts = themeCounters[theme];
+              return {
+                grouped_theme: theme,
+                positive_count: counts.positive,
+                neutral_count: counts.neutral,
+                negative_count: counts.negative,
+                total_count: counts.total,
+                positive_percent: counts.total > 0 ? Math.round((counts.positive / counts.total) * 100) : 0,
+                neutral_percent: counts.total > 0 ? Math.round((counts.neutral / counts.total) * 100) : 0,
+                negative_percent: counts.total > 0 ? Math.round((counts.negative / counts.total) * 100) : 0
+              };
+            });
+            
+            setThemeData(calculatedThemeData);
+        }
+
+        if (postIds) {
+            const CHUNK_SIZE = 500;
+            const idChunks = Array.from({ length: Math.ceil(postIds.length / CHUNK_SIZE) }, (_, i) =>
+              postIds.slice(i * CHUNK_SIZE, i * CHUNK_SIZE + CHUNK_SIZE)
+            );
+            
+            Promise.all(idChunks.map(async (ids) => {
+              const { data, error } = await supabase
+                .from('analysis_results')
+                .select('content_id, themes, sentiment')
+                .eq('content_type', 'post')
+                .not('themes', 'is', null)
+                .in('content_id', ids);
+              if (error) throw error;
+              return data || [];
+            })).then(chunkResults => {
+              processResults(chunkResults.flat());
+            }).catch(err => {
+              console.error('Error fetching chunked theme data:', err);
+              setError(err.message);
+            });
+
+        } else {
+            const { count: totalCount, error: countError } = await supabase
+              .from('analysis_results')
+              .select('*', { count: 'exact', head: true })
+              .eq('content_type', 'post')
+              .not('themes', 'is', null);
+            
+            if (countError) throw countError;
+
+            if (!totalCount) {
+              setThemeData([]);
+              return;
+            }
+
+            const analysisResults: any[] = [];
+            const BATCH_SIZE = 1000;
+            for (let i = 0; i < totalCount; i += BATCH_SIZE) {
+              const { data, error } = await supabase
+                .from('analysis_results')
+                .select('content_id, themes, sentiment')
+                .eq('content_type', 'post')
+                .not('themes', 'is', null)
+                .range(i, i + BATCH_SIZE - 1);
+              if (error) throw error;
+              if (data) analysisResults.push(...data);
+            }
+            processResults(analysisResults);
+        }
         
       } catch (err) {
         console.error('Error in theme data processing:', err);
         setError(err instanceof Error ? err.message : String(err));
+      } finally {
         setLoading(false);
       }
     };
 
     fetchThemeData();
-  }, []);
+  }, [fromDate, toDate]);
 
   const options: ChartOptions<'bar'> = {
     indexAxis: 'y' as const,

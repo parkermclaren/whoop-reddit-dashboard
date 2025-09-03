@@ -47,6 +47,11 @@ interface FeatureData {
   isLoading?: boolean;
 }
 
+interface FeatureInsightsProps {
+  fromDate?: string;
+  toDate?: string;
+}
+
 interface AspectInDb {
   feature: string;
   sentiment: 'positive' | 'neutral' | 'negative';
@@ -161,7 +166,7 @@ const shortenFeatureName = (name: string) => {
   return nameMap[name] || name;
 };
 
-export default function FeatureInsights() {
+export default function FeatureInsights({ fromDate, toDate }: FeatureInsightsProps) {
   const [features, setFeatures] = useState<FeatureData[]>(PREDEFINED_FEATURES);
   const [dataLoading, setDataLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -193,17 +198,65 @@ export default function FeatureInsights() {
         setError(null);
         const supabase = createClient();
         
-        // Simplified approach - match KeywordCloud's successful query
-        const { data: analysisResults, error: analysisError } = await supabase
+        // Step 1: Get post_ids from date range if specified
+        let postIds: string[] | null = null;
+        if (fromDate || toDate) {
+          const allPostIds = [];
+          let offset = 0;
+          const BATCH_SIZE = 1000;
+          let keepFetching = true;
+
+          while (keepFetching) {
+            let postsQuery = supabase.from('reddit_posts').select('id');
+            if (fromDate) postsQuery = postsQuery.gte('created_at', fromDate);
+            if (toDate) postsQuery = postsQuery.lte('created_at', toDate);
+            
+            const { data, error } = await postsQuery.range(offset, offset + BATCH_SIZE - 1);
+            
+            if (error) throw new Error(`Error fetching post IDs: ${error.message}`);
+            
+            if (data && data.length > 0) {
+              allPostIds.push(...data.map(p => p.id));
+              offset += data.length;
+            } else {
+              keepFetching = false;
+            }
+
+            if (data && data.length < BATCH_SIZE) {
+              keepFetching = false;
+            }
+          }
+          postIds = allPostIds;
+
+          // If date range is specified but no posts are found, exit early
+          if (postIds.length === 0) {
+            setFeatures(PREDEFINED_FEATURES.map(f => ({ ...f, isLoading: false, mentionCount: 0, quotes: [] })));
+            setDataLoading(false);
+            return;
+          }
+        }
+        
+        // Step 2: Fetch analysis_results using postIds
+        let analysisResults: any[] = [];
+        const baseSelect = () => supabase
           .from('analysis_results')
           .select('content_id, aspects')
           .eq('content_type', 'post')
           .not('aspects', 'is', null)
           .not('aspects', 'eq', '[]');
-        
-        if (analysisError) {
-          console.error("Analysis results error:", analysisError);
-          throw analysisError;
+
+        if (postIds) {
+          const batchSize = 500;
+          for (let i = 0; i < postIds.length; i += batchSize) {
+            const batchIds = postIds.slice(i, i + batchSize);
+            const { data, error } = await baseSelect().in('content_id', batchIds);
+            if (error) throw error;
+            if (data) analysisResults.push(...data);
+          }
+        } else {
+          const { data, error } = await baseSelect();
+          if (error) throw error;
+          analysisResults = data || [];
         }
         
         if (!analysisResults || analysisResults.length === 0) {
@@ -212,15 +265,12 @@ export default function FeatureInsights() {
           return;
         }
         
-        // Count feature mentions and collect quotes - simplified approach
         const featureMap = new Map<string, { quotes: Quote[], mentionCount: number }>();
         
-        // Initialize with predefined features
         features.forEach(feature => {
           featureMap.set(feature.name, { quotes: [], mentionCount: 0 });
         });
         
-        // Consolidation helper to align with KeywordCloud
         const consolidateFeature = (name: string): string => {
           const normalized = (name || '').toLowerCase();
           if (normalized.includes('irregular') || normalized.includes('ecg') || normalized.includes('electrocardiogram')) {
@@ -235,7 +285,6 @@ export default function FeatureInsights() {
           return name;
         };
 
-        // Process all results directly
         analysisResults.forEach(result => {
           if (result.aspects && Array.isArray(result.aspects)) {
             result.aspects.forEach((aspect: any) => {
@@ -243,15 +292,12 @@ export default function FeatureInsights() {
               const quote = aspect.quote;
               const sentiment = aspect.sentiment;
               
-              // Skip if missing required data
               if (!featureName || !quote) return;
               
-              // Initialize feature if not exists (for any new features found)
               if (!featureMap.has(featureName)) {
                 featureMap.set(featureName, { quotes: [], mentionCount: 0 });
               }
               
-              // Get feature data and increment
               const featureData = featureMap.get(featureName)!;
               featureData.mentionCount++;
               featureData.quotes.push({
@@ -265,46 +311,33 @@ export default function FeatureInsights() {
           }
         });
         
-        // Get unique content IDs for reddit_posts data
-        const uniqueContentIds = Array.from(
-          new Set(analysisResults.map(result => result.content_id))
-        );
+        const uniqueContentIds = Array.from(new Set(analysisResults.map(r => r.content_id).filter(Boolean)));
         
-        // Fetch reddit_posts data in larger batches
         const postsData = new Map<string, { ups: number, num_comments: number, url?: string }>();
-        
         if (uniqueContentIds.length > 0) {
-          try {
-            const batchSize = 100; // Larger batch size
-            
-            for (let i = 0; i < uniqueContentIds.length; i += batchSize) {
-              const batchIds = uniqueContentIds.slice(i, i + batchSize);
-              
-              try {
-                const { data: postsBatch, error: batchError } = await supabase
-                  .from('reddit_posts')
-                  .select('id, ups, num_comments, url')
-                  .in('id', batchIds);
-                  
-                if (!batchError && postsBatch) {
-                  postsBatch.forEach(post => {
-                    postsData.set(post.id, { 
-                      ups: post.ups || 0,
-                      num_comments: post.num_comments || 0,
-                      url: post.url || undefined
-                    });
+          const batchSize = 200;
+          for (let i = 0; i < uniqueContentIds.length; i += batchSize) {
+            const batchIds = uniqueContentIds.slice(i, i + batchSize);
+            try {
+              const { data: postsBatch, error: batchError } = await supabase
+                .from('reddit_posts')
+                .select('id, ups, num_comments, url')
+                .in('id', batchIds);
+              if (!batchError && postsBatch) {
+                postsBatch.forEach(post => {
+                  postsData.set(post.id, {
+                    ups: post.ups || 0,
+                    num_comments: post.num_comments || 0,
+                    url: post.url || undefined
                   });
-                }
-              } catch (batchError) {
-                console.warn(`Error fetching batch ${Math.floor(i/batchSize)}:`, batchError);
+                });
               }
+            } catch (batchErr) {
+              console.warn('Error fetching reddit_posts batch:', batchErr);
             }
-          } catch (upvotesError) {
-            console.warn("Error fetching post data, using default values:", upvotesError);
           }
         }
         
-        // Update predefined features with the data
         const updatedFeatures = features.map(feature => {
           const featureData = featureMap.get(feature.name);
           
@@ -312,7 +345,6 @@ export default function FeatureInsights() {
             return { ...feature, isLoading: false };
           }
           
-          // Add upvote/comment data to quotes
           const quotesWithData = featureData.quotes.map(quote => ({
             ...quote,
             postUpvotes: postsData.get(quote.contentId)?.ups || quote.postUpvotes,
@@ -322,21 +354,13 @@ export default function FeatureInsights() {
             isTopCommented: false
           }));
           
-          // Sort quotes by upvotes
           const sortedQuotes = [...quotesWithData].sort((a, b) => b.postUpvotes - a.postUpvotes);
-          
-          // Mark top upvoted and commented
           if (sortedQuotes.length > 0) {
-            sortedQuotes.slice(0, 3).forEach(quote => {
-              quote.isTopUpvoted = true;
-            });
+            sortedQuotes.slice(0, 3).forEach(q => { q.isTopUpvoted = true; });
           }
-          
           const commentSorted = [...quotesWithData].sort((a, b) => (b.commentCount || 0) - (a.commentCount || 0));
           if (commentSorted.length > 0) {
-            commentSorted.slice(0, 2).forEach(quote => {
-              quote.isTopCommented = true;
-            });
+            commentSorted.slice(0, 2).forEach(q => { q.isTopCommented = true; });
           }
           
           return {
@@ -347,9 +371,7 @@ export default function FeatureInsights() {
           };
         });
         
-        // Remove any features with zero mentions to maintain a clean grid
         const compactFeatures = updatedFeatures.filter(f => f.mentionCount > 0 || PREDEFINED_FEATURES.some(p => p.name === f.name));
-        // Sort by mention count
         compactFeatures.sort((a, b) => b.mentionCount - a.mentionCount);
         
         setFeatures(compactFeatures);
@@ -363,7 +385,7 @@ export default function FeatureInsights() {
     };
 
     fetchFeatureData();
-  }, []);
+  }, [fromDate, toDate]);
 
   if (error) {
     return (

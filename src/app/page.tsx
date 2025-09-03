@@ -13,8 +13,9 @@ import CompetitorMentions from '@/components/CompetitorMentions';
 import CancellationInsights from '@/components/CancellationInsights';
 import InfoButton from '@/components/InfoButton';
 import ProductSatisfactionInsights from '@/components/ProductSatisfactionInsights';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Image from 'next/image';
+import { createClient } from '@/utils/supabase/client';
 
 // Import the SortOption type from the TopPostsTable component
 import type { SortOption, SentimentFilter } from '@/components/TopPostsTable';
@@ -32,8 +33,94 @@ const KeywordCloud = dynamic(() => import('@/components/KeywordCloud'), {
 const inter = Inter({ subsets: ['latin'] });
 
 export default function Home() {
-  // These state variables are no longer needed as they're handled in the component
-  
+  const [fromDate, setFromDate] = useState<string | null>(null);
+  const [toDate, setToDate] = useState<string | null>(null);
+  const [earliestDate, setEarliestDate] = useState<string | null>(null); // YYYY-MM-DD for display
+
+  const setPreset = (days: number | null) => {
+    if (days === null) {
+      // For "All time", clear date filters to show all data
+      setFromDate(null);
+      setToDate(null);
+      return;
+    }
+    const now = new Date();
+    const from = new Date(now);
+    from.setDate(now.getDate() - days);
+    setFromDate(from.toISOString());
+    setToDate(now.toISOString());
+  };
+
+  // Function to determine if a preset is active
+  const isPresetActive = (days: number | null) => {
+    if (days === null) {
+      // "All time" is active when no date filters are applied
+      return !fromDate && !toDate;
+    }
+    
+    if (!fromDate || !toDate) return false;
+    
+    const now = new Date();
+    const expectedFrom = new Date(now);
+    expectedFrom.setDate(now.getDate() - days);
+    
+    // Check if the current date range matches the preset (within 1 hour tolerance)
+    const fromDiff = Math.abs(new Date(fromDate).getTime() - expectedFrom.getTime());
+    const toDiff = Math.abs(new Date(toDate).getTime() - now.getTime());
+    
+    return fromDiff < 3600000 && toDiff < 3600000; // 1 hour in milliseconds
+  };
+
+  const dateInputValue = (iso: string | null) => {
+    if (!iso) return '';
+    try {
+      return new Date(iso).toISOString().slice(0, 10);
+    } catch {
+      return '';
+    }
+  };
+
+  const onFromInputChange = (value: string) => {
+    if (!value) {
+      setFromDate(null);
+      return;
+    }
+    setFromDate(new Date(`${value}T00:00:00.000Z`).toISOString());
+  };
+
+  const onToInputChange = (value: string) => {
+    if (!value) {
+      setToDate(null);
+      return;
+    }
+    setToDate(new Date(`${value}T23:59:59.999Z`).toISOString());
+  };
+
+  // Fetch earliest tracking date for display when no filters are applied
+  useEffect(() => {
+    let isMounted = true;
+    const fetchEarliest = async () => {
+      try {
+        const supabase = createClient();
+        const { data, error } = await supabase
+          .from('reddit_posts')
+          .select('created_at')
+          .order('created_at', { ascending: true })
+          .limit(1);
+        if (error) return;
+        const first = data && data[0] && data[0].created_at ? new Date(data[0].created_at) : null;
+        if (isMounted && first) {
+          // Store as YYYY-MM-DD for date input display
+          setEarliestDate(first.toISOString().slice(0, 10));
+        }
+      } catch {
+        // Ignore display-only failure
+      }
+    };
+    fetchEarliest();
+    return () => { isMounted = false; };
+  }, []);
+
   return (
     <main className="min-h-screen bg-[#1a1c20] text-white">
       <Header />
@@ -104,7 +191,59 @@ export default function Home() {
           </div>
         </div>
         
-        <Stats />
+        {/* Date Range - sticky filter bar */}
+        <div className="sticky top-[76px] md:top-[84px] z-40 mb-6">
+          <div className="mx-auto max-w-5xl bg-[#1E1F24]/80 backdrop-blur supports-[backdrop-filter]:bg-[#1E1F24]/60 border border-[#2b2d31] rounded-xl shadow-md">
+            <div className="flex flex-wrap items-center justify-center gap-2 px-3 py-2">
+              <button 
+                onClick={() => setPreset(null)} 
+                className={`px-3 py-1 rounded-md border transition-colors ${
+                  isPresetActive(null) 
+                    ? 'bg-[#44d7b6] text-black border-[#44d7b6] hover:bg-[#3bc4a8]' 
+                    : 'bg-[#1E1F24] text-gray-200 border-[#383a3e] hover:bg-[#26282d]'
+                }`}
+              >
+                All time
+              </button>
+              <button 
+                onClick={() => setPreset(1)} 
+                className={`px-3 py-1 rounded-md border transition-colors ${
+                  isPresetActive(1) 
+                    ? 'bg-[#44d7b6] text-black border-[#44d7b6] hover:bg-[#3bc4a8]' 
+                    : 'bg-[#1E1F24] text-gray-200 border-[#383a3e] hover:bg-[#26282d]'
+                }`}
+              >
+                24h
+              </button>
+              <button 
+                onClick={() => setPreset(7)} 
+                className={`px-3 py-1 rounded-md border transition-colors ${
+                  isPresetActive(7) 
+                    ? 'bg-[#44d7b6] text-black border-[#44d7b6] hover:bg-[#3bc4a8]' 
+                    : 'bg-[#1E1F24] text-gray-200 border-[#383a3e] hover:bg-[#26282d]'
+                }`}
+              >
+                7d
+              </button>
+              <button 
+                onClick={() => setPreset(30)} 
+                className={`px-3 py-1 rounded-md border transition-colors ${
+                  isPresetActive(30) 
+                    ? 'bg-[#44d7b6] text-black border-[#44d7b6] hover:bg-[#3bc4a8]' 
+                    : 'bg-[#1E1F24] text-gray-200 border-[#383a3e] hover:bg-[#26282d]'
+                }`}
+              >
+                30d
+              </button>
+              <div className="flex items-center gap-2 ml-1">
+                <input type="date" value={fromDate ? dateInputValue(fromDate) : (earliestDate || '')} onChange={(e) => onFromInputChange(e.target.value)} className="bg-[#1E1F24] text-white placeholder-gray-400 rounded-md px-3 py-1 outline-none ring-1 ring-[#383a3e] focus:ring-[#44d7b6]/60" />
+                <span className="text-gray-400 text-sm">to</span>
+                <input type="date" value={toDate ? dateInputValue(toDate) : new Date().toISOString().slice(0, 10)} onChange={(e) => onToInputChange(e.target.value)} className="bg-[#1E1F24] text-white placeholder-gray-400 rounded-md px-3 py-1 outline-none ring-1 ring-[#383a3e] focus:ring-[#44d7b6]/60" />
+              </div>
+            </div>
+          </div>
+        </div>
+        <Stats fromDate={fromDate || undefined} toDate={toDate || undefined} />
         
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
           <div id="feature-analysis" className="bg-[#24262b] rounded-xl p-6 shadow-lg relative scroll-mt-24">
@@ -127,7 +266,7 @@ export default function Home() {
             <p className="text-sm text-gray-400 mb-4">
               New features mentioned in community discussions (size = mentions, color = sentiment)
             </p>
-            <KeywordCloud />
+            <KeywordCloud fromDate={fromDate || undefined} toDate={toDate || undefined} />
           </div>
           
           <div id="theme-distribution" className="bg-[#24262b] rounded-xl p-6 shadow-lg relative scroll-mt-24">
@@ -148,7 +287,7 @@ export default function Home() {
             <p className="text-sm text-gray-400 mb-4">
               Key topics discussed following the announcement
             </p>
-            <ThemeBreakdown />
+            <ThemeBreakdown fromDate={fromDate || undefined} toDate={toDate || undefined} />
             <div className="mt-4 flex justify-center space-x-4 text-sm">
               <div className="flex items-center">
                 <div className="h-3 w-3 rounded-full bg-[rgba(68,215,182,0.7)] mr-2"></div>
@@ -178,7 +317,7 @@ export default function Home() {
               </p>
             </InfoButton>
           </div>
-          <TopPostsTable />
+          <TopPostsTable fromDate={fromDate || undefined} toDate={toDate || undefined} />
           <div className="mt-4 text-sm text-gray-400">
             <p>
               These posts reflect the most engaging topics in the community. 
@@ -202,7 +341,7 @@ export default function Home() {
           <p className="text-sm text-gray-400 mb-4">
             Most impactful community quotes about each new feature
           </p>
-          <FeatureInsights />
+          <FeatureInsights fromDate={fromDate || undefined} toDate={toDate || undefined} />
           <div className="mt-4 text-sm text-gray-400">
             <p>
               Select any feature to see what the community is saying. Quotes are color-coded by sentiment and ranked by engagement.
@@ -226,7 +365,7 @@ export default function Home() {
           <p className="text-sm text-gray-400 mb-4">
             Direct comparison of WHOOP 5.0 vs WHOOP MG satisfaction metrics from users who have confirmed receiving their device
           </p>
-          <ProductSatisfactionInsights />
+          <ProductSatisfactionInsights fromDate={fromDate || undefined} toDate={toDate || undefined} />
           <div className="mt-4 text-sm text-gray-400">
             <p>
               This data represents actual hands-on experience with the new hardware, providing valuable insights into real-world product performance.
@@ -249,7 +388,7 @@ export default function Home() {
           <p className="text-sm text-gray-400 mb-4">
             Breakdown of competitors mentioned in community discussions
           </p>
-          <CompetitorMentions />
+          <CompetitorMentions fromDate={fromDate || undefined} toDate={toDate || undefined} />
           <div className="mt-4 text-sm text-gray-400">
             <p>
               Each card shows the number of mentions and sentiment distribution (positive, neutral, negative) for each competitor.
@@ -272,7 +411,7 @@ export default function Home() {
           <p className="text-sm text-gray-400 mb-4">
             Analysis of users mentioning cancellation of their WHOOP membership
           </p>
-          <CancellationInsights />
+          <CancellationInsights fromDate={fromDate || undefined} toDate={toDate || undefined} />
           <div className="mt-4 text-sm text-gray-400">
             <p>
               This analysis shows what percentage of users mention cancellation and the primary reasons driving cancellation decisions.

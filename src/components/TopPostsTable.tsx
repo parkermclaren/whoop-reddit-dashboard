@@ -26,13 +26,19 @@ type TooltipPosition = {
 export type SortOption = 'upvotes' | 'comments';
 export type SentimentFilter = 'all' | 'positive' | 'negative';
 
-export default function TopPostsTable({ 
-  sortBy = 'upvotes',
-  initialSentiment = 'all'
-}: { 
+export interface TopPostsTableProps {
+  fromDate?: string;
+  toDate?: string;
   sortBy?: SortOption,
   initialSentiment?: SentimentFilter 
-}) {
+}
+
+export default function TopPostsTable({ 
+  sortBy = 'upvotes',
+  initialSentiment = 'all',
+  fromDate,
+  toDate
+}: TopPostsTableProps) {
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -82,17 +88,17 @@ export default function TopPostsTable({
           throw new Error("Supabase environment variables are missing");
         }
         
-        // Use the client utility the same way ThemeBreakdown does
         const supabase = createClient();
 
-        // First get the top posts by engagement
         let query = supabase
           .from('reddit_posts')
           .select('*')
           .order(activeSortBy === 'upvotes' ? 'ups' : 'num_comments', { ascending: false });
-          
-        // Get post IDs to fetch corresponding analysis results
-        const { data: postsData, error: postsError } = await query.limit(100); // Fetch more so we can filter
+
+        if (fromDate) query = query.gte('created_at', fromDate);
+        if (toDate) query = query.lte('created_at', toDate);
+
+        const { data: postsData, error: postsError } = await query.limit(100);
           
         if (postsError) {
           throw new Error(postsError.message);
@@ -104,22 +110,20 @@ export default function TopPostsTable({
           return;
         }
 
-        // Get post IDs to fetch corresponding analysis results
-        const postIds = postsData.map(post => post.id);
+        const fetchedPostIds = postsData.map(post => post.id);
         
-        // Fetch analysis results for these posts
-        const { data: analysisData, error: analysisError } = await supabase
-          .from('analysis_results')
-          .select('*')
-          .in('content_id', postIds)
-          .eq('content_type', 'post');
-          
-        if (analysisError) {
-          console.error('Error fetching analysis results:', analysisError);
-          // Continue with posts even if we can't get analysis
+        let analysisData: any[] = [];
+        const analysisBatchSize = 300;
+        for (let i = 0; i < fetchedPostIds.length; i += analysisBatchSize) {
+          const batchIds = fetchedPostIds.slice(i, i + analysisBatchSize);
+          const { data, error } = await supabase
+            .from('analysis_results')
+            .select('*')
+            .in('content_id', batchIds)
+            .eq('content_type', 'post');
+          if (!error && data) analysisData.push(...data);
         }
-        
-        // Create a map of post ID to analysis for easy lookup
+          
         const analysisMap = new Map();
         if (analysisData) {
           analysisData.forEach(analysis => {
@@ -127,11 +131,8 @@ export default function TopPostsTable({
           });
         }
 
-        // Transform the data to match our Post type
         const transformedPosts: Post[] = postsData.map(post => {
-          // Look up analysis for this post
           const analysis = analysisMap.get(post.id);
-          
           return {
             id: post.id,
             title: post.title || '',
@@ -145,13 +146,11 @@ export default function TopPostsTable({
           };
         });
 
-        // Filter by sentiment if not "all"
         let filteredPosts = transformedPosts;
         if (activeSentiment !== 'all') {
           filteredPosts = transformedPosts.filter(post => post.sentiment === activeSentiment);
         }
 
-        // Take the top 25 after filtering instead of just 10
         setPosts(filteredPosts.slice(0, 25));
       } catch (err) {
         console.error('Error fetching top posts:', err);
@@ -162,7 +161,7 @@ export default function TopPostsTable({
     };
 
     fetchTopPosts();
-  }, [activeSortBy, activeSentiment]);
+  }, [activeSortBy, activeSentiment, fromDate, toDate]);
 
   const handleMouseEnter = (postId: string, e: React.MouseEvent<HTMLDivElement>) => {
     calculateTooltipPosition(e.currentTarget);

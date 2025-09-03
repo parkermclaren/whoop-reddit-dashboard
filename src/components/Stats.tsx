@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createClient } from '@/utils/supabase/client';
 
 interface SentimentStats {
@@ -24,13 +24,24 @@ interface AnnouncementData {
   content_id: string;
 }
 
-export default function Stats() {
+interface StatsProps {
+  fromDate?: string;
+  toDate?: string;
+}
+
+export default function Stats({ fromDate, toDate }: StatsProps) {
   const [sentimentStats, setSentimentStats] = useState<SentimentStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [hoverStat, setHoverStat] = useState<'negative' | 'neutral' | 'positive' | null>(null);
   const [announcementRelatedPercent, setAnnouncementRelatedPercent] = useState<number | null>(null);
   const [peakActivityPostCount, setPeakActivityPostCount] = useState<number>(0);
   const [postsLast24Hours, setPostsLast24Hours] = useState<number>(0);
+  const [filteredTotalPosts, setFilteredTotalPosts] = useState<number | null>(null);
+  const wasFilteredRef = useRef(false);
+  const originalSentimentStatsRef = useRef<SentimentStats | null>(null);
+  const originalAnnouncementRelatedPercentRef = useRef<number | null>(null);
+  const originalPeakActivityPostCountRef = useRef<number>(0);
+  const originalTopThemeRef = useRef<{ name: string; sentiment: 'positive' | 'neutral' | 'negative'; percentage: number; } | null>(null);
   
   // Theme state has been simplified to just hold display data
   const [topTheme, setTopTheme] = useState<{
@@ -128,290 +139,198 @@ export default function Stats() {
   ];
 
   useEffect(() => {
-    const fetchSentimentStats = async () => {
+    const fetchAllStats = async () => {
+      setLoading(true);
       try {
         const supabase = createClient();
-        
-        // First get the total count
-        const { count: totalCount, error: countError } = await supabase
+
+        // Step 1: Get relevant post IDs if a date range is provided
+        let postIds: string[] | null = null;
+        if (fromDate || toDate) {
+          const allPostIds = [];
+          let offset = 0;
+          const BATCH_SIZE = 1000;
+          let keepFetching = true;
+
+          while (keepFetching) {
+            let postsQuery = supabase.from('reddit_posts').select('id');
+            if (fromDate) postsQuery = postsQuery.gte('created_at', fromDate);
+            if (toDate) postsQuery = postsQuery.lte('created_at', toDate);
+            
+            const { data, error } = await postsQuery.range(offset, offset + BATCH_SIZE - 1);
+            
+            if (error) throw error;
+            
+            if (data && data.length > 0) {
+              allPostIds.push(...data.map(p => p.id));
+              offset += data.length;
+            } else {
+              keepFetching = false;
+            }
+
+            if (data && data.length < BATCH_SIZE) {
+              keepFetching = false;
+            }
+          }
+
+          postIds = allPostIds;
+          setFilteredTotalPosts(postIds.length);
+          if (postIds.length === 0) {
+            setSentimentStats({ avg_sentiment_score: 0, positive_count: 0, neutral_count: 0, negative_count: 0, total_count: 0, positive_percent: 0, neutral_percent: 0, negative_percent: 0 });
+            setAnnouncementRelatedPercent(0);
+            setPeakActivityPostCount(0);
+            setTopTheme(null);
+            return;
+          }
+        } else {
+          setFilteredTotalPosts(null);
+        }
+
+        // Step 2: Fetch all analysis results (either globally or filtered by postIds)
+        let analysisResults: any[] = [];
+        const baseQuery = () => supabase
           .from('analysis_results')
-          .select('*', { count: 'exact', head: true })
+          .select('content_id, sentiment, sentiment_score, is_announcement_related, themes')
           .eq('content_type', 'post');
-        
-        if (countError) {
-          console.error('Error counting posts:', countError);
-          throw countError;
-        }
-        
-        if (totalCount === null) throw new Error('Could not get total count');
 
-        // Initialize accumulators
-        let allData: SentimentData[] = [];
-        let batchSize = 1000;
-        let processedRows = 0;
-
-        // Fetch data in batches
-        while (processedRows < totalCount) {
-          const { data: batchData, error: batchError } = await supabase
-            .from('analysis_results')
-            .select('sentiment, sentiment_score')
-            .eq('content_type', 'post')
-            .range(processedRows, processedRows + batchSize - 1);
-
-          if (batchError) throw batchError;
-          if (!batchData) throw new Error('No data returned in batch');
-
-          allData = [...allData, ...batchData];
-          processedRows += batchSize;
+        if (postIds) {
+          const CHUNK_SIZE = 500;
+          for (let i = 0; i < postIds.length; i += CHUNK_SIZE) {
+            const { data, error } = await baseQuery().in('content_id', postIds.slice(i, i + CHUNK_SIZE));
+            if (error) throw error;
+            if (data) analysisResults.push(...data);
+          }
+        } else {
+          const { count } = await supabase.from('analysis_results').select('*', { count: 'exact', head: true }).eq('content_type', 'post');
+          const BATCH_SIZE = 1000;
+          if (count) {
+            for (let i = 0; i < count; i += BATCH_SIZE) {
+              const { data, error } = await baseQuery().range(i, i + BATCH_SIZE - 1);
+              if (error) throw error;
+              if (data) analysisResults.push(...data);
+            }
+          }
         }
 
-        // Calculate stats from complete dataset
-        const total = allData.length;
-        const positive = allData.filter(item => item.sentiment === 'positive').length;
-        const neutral = allData.filter(item => item.sentiment === 'neutral').length;
-        const negative = allData.filter(item => item.sentiment === 'negative').length;
+        // Step 3: Process results for all stats
+        // Sentiment Distribution
+        const byPostSentiment: Record<string, { sentiment: string; sentiment_score: number }> = {};
+        for (const row of analysisResults) {
+          if (!byPostSentiment[row.content_id]) byPostSentiment[row.content_id] = { sentiment: row.sentiment, sentiment_score: row.sentiment_score };
+        }
+        const sentimentData = Object.values(byPostSentiment);
+        const total = sentimentData.length;
         
-        const avgScore = allData.reduce((sum, item) => sum + (item.sentiment_score || 0), 0) / total;
-        
+        // Update filteredTotalPosts with the count of *analyzed* posts
+        if (fromDate || toDate) {
+          setFilteredTotalPosts(total);
+        } else {
+          setFilteredTotalPosts(null); // Fallback to sentimentStats.total_count for default view
+        }
+
+        const positive = sentimentData.filter(item => item.sentiment === 'positive').length;
+        const neutral = sentimentData.filter(item => item.sentiment === 'neutral').length;
+        const negative = sentimentData.filter(item => item.sentiment === 'negative').length;
+        const avgScore = total > 0 ? sentimentData.reduce((sum, item) => sum + (item.sentiment_score || 0), 0) / total : 0;
         setSentimentStats({
-          avg_sentiment_score: avgScore,
-          positive_count: positive,
-          neutral_count: neutral,
-          negative_count: negative,
-          total_count: total,
-          positive_percent: parseFloat(((positive / total) * 100).toFixed(1)),
-          neutral_percent: parseFloat(((neutral / total) * 100).toFixed(1)),
-          negative_percent: parseFloat(((negative / total) * 100).toFixed(1))
+          avg_sentiment_score: avgScore, positive_count: positive, neutral_count: neutral, negative_count: negative, total_count: total,
+          positive_percent: total > 0 ? parseFloat(((positive / total) * 100).toFixed(1)) : 0,
+          neutral_percent: total > 0 ? parseFloat(((neutral / total) * 100).toFixed(1)) : 0,
+          negative_percent: total > 0 ? parseFloat(((negative / total) * 100).toFixed(1)) : 0,
         });
+
+        // Announcement Relevance
+        const byPostAnn: Record<string, { is_announcement_related: boolean }> = {};
+        for (const row of analysisResults) {
+          if (!byPostAnn[row.content_id]) byPostAnn[row.content_id] = { is_announcement_related: row.is_announcement_related };
+        }
+        const annData = Object.values(byPostAnn);
+        const totalPeak = annData.length;
+        const announcementRelated = annData.filter(item => item.is_announcement_related).length;
+        setAnnouncementRelatedPercent(totalPeak > 0 ? parseFloat(((announcementRelated / totalPeak) * 100).toFixed(1)) : 0);
+        setPeakActivityPostCount(totalPeak);
+
+        // Top Theme
+        const themeResults = analysisResults.filter(r => r.themes && r.themes.length > 0);
+        if (themeResults.length === 0) { setTopTheme(null); }
+        else {
+          const themeCounters: Record<string, { p: number; u: number; n: number; t: number; }> = {};
+          MAIN_THEMES.forEach(theme => { themeCounters[theme] = { p: 0, u: 0, n: 0, t: 0 }; });
+          type PostAgg = { themes: Set<string>; sC: { p: number; u: number; n: number; } };
+          const perPost: Record<string, PostAgg> = {};
+          themeResults.forEach((row: any) => {
+            const pId = row.content_id;
+            if (!perPost[pId]) perPost[pId] = { themes: new Set(), sC: { p: 0, u: 0, n: 0 } };
+            const s = row.sentiment || 'neutral';
+            if (s === 'positive') perPost[pId].sC.p++; else if (s === 'negative') perPost[pId].sC.n++; else perPost[pId].sC.u++;
+            row.themes.forEach((t: string) => { if (THEME_MAPPING[t.toLowerCase()]) perPost[pId].themes.add(THEME_MAPPING[t.toLowerCase()]); });
+          });
+          let totalAnalyzed = 0;
+          Object.values(perPost).forEach(post => {
+            if (post.themes.size === 0) return;
+            totalAnalyzed++;
+            const d = post.sC.p >= post.sC.u && post.sC.p >= post.sC.n ? 'p' : post.sC.u >= post.sC.p && post.sC.u >= post.sC.n ? 'u' : 'n';
+            post.themes.forEach(theme => {
+              themeCounters[theme].t++;
+              if (d === 'p') themeCounters[theme].p++; else if (d === 'n') themeCounters[theme].n++; else themeCounters[theme].u++;
+            });
+          });
+          let topName = MAIN_THEMES[0], topCount = 0;
+          for (const theme of MAIN_THEMES) { if (themeCounters[theme].t > topCount) { topName = theme; topCount = themeCounters[theme].t; } }
+          const topData = themeCounters[topName];
+          const dS = [{ t: 'positive', c: topData.p }, { t: 'neutral', c: topData.u }, { t: 'negative', c: topData.n }].reduce((p, c) => (c.c > p.c) ? c : p);
+          setTopTheme({ name: topName, sentiment: dS.t as any, percentage: totalAnalyzed > 0 ? Math.round((topData.t / totalAnalyzed) * 100) : 0 });
+        }
       } catch (err) {
-        console.error('Error fetching sentiment stats:', err);
-        // Don't set fallback data on error - let it remain null
-        console.error('Failed to fetch sentiment stats, showing loading state');
+        console.error('Error fetching stats:', err);
       } finally {
         setLoading(false);
       }
     };
-    
-    const fetchAnnouncementRelatedStats = async () => {
-      try {
-        const supabase = createClient();
-        
-        // First get the total count
-        const { count: totalCount, error: countError } = await supabase
-          .from('analysis_results')
-          .select('*', { count: 'exact', head: true })
-          .eq('content_type', 'post');
-        
-        if (countError) throw countError;
-        if (totalCount === null) throw new Error('Could not get total count');
 
-        // Initialize accumulators
-        let allData: AnnouncementData[] = [];
-        let batchSize = 1000;
-        let processedRows = 0;
+    fetchAllStats();
 
-        // Fetch data in batches
-        while (processedRows < totalCount) {
-          const { data: batchData, error: batchError } = await supabase
-            .from('analysis_results')
-            .select('is_announcement_related, content_id')
-            .eq('content_type', 'post')
-            .range(processedRows, processedRows + batchSize - 1);
-
-          if (batchError) throw batchError;
-          if (!batchData) throw new Error('No data returned in batch');
-
-          allData = [...allData, ...batchData];
-          processedRows += batchSize;
-        }
-
-        // Calculate announcement related stats from complete dataset
-        const totalPeakPosts = allData.length;
-        const announcementRelatedPosts = allData.filter(item => item.is_announcement_related).length;
-        
-        // Set the percentage
-        setAnnouncementRelatedPercent(
-          parseFloat(((announcementRelatedPosts / totalPeakPosts) * 100).toFixed(1))
-        );
-        
-        // Update peak activity post count with actual total
-        setPeakActivityPostCount(totalPeakPosts);
-      } catch (err) {
-        console.error('Error fetching announcement related stats:', err);
-        // Don't set fallback data on error
-        console.error('Failed to fetch announcement stats');
-      }
+    // Fetch 24h posts count independently as it's not subject to date filters
+    const fetchRecent = async () => {
+        try {
+            const supabase = createClient();
+            const oneDayAgo = new Date();
+            oneDayAgo.setDate(oneDayAgo.getDate() - 1);
+            const { data, error } = await supabase.from('reddit_posts').select('id').gte('created_at', oneDayAgo.toISOString());
+            if (error) throw error;
+            if (data) setPostsLast24Hours(data.length);
+        } catch (err) { console.error('Error fetching recent posts:', err); }
     };
-    
-    const fetchRecentPosts = async () => {
-      try {
-        const supabase = createClient();
-        // Get posts from the last 24 hours
-        const oneDayAgo = new Date();
-        oneDayAgo.setDate(oneDayAgo.getDate() - 1);
-        
-        const { data, error } = await supabase
-          .from('reddit_posts')
-          .select('id')
-          .gte('created_at', oneDayAgo.toISOString());
-        
-        if (error) throw error;
-        
-        if (data) {
-          setPostsLast24Hours(data.length);
-        }
-      } catch (err) {
-        console.error('Error fetching recent posts:', err);
-        // Keep the value as 0
-      }
-    };
+    if (postsLast24Hours === 0) fetchRecent();
 
-    // New implementation of the top theme fetching
-    const fetchTopTheme = async () => {
-      try {
-        const supabase = createClient();
-        
-        // Get all sentiment analysis results for posts with themes
-        const { data: analysisResults, error: analysisError } = await supabase
-          .from('analysis_results')
-          .select('themes, sentiment')
-          .eq('content_type', 'post')
-          .not('themes', 'is', null);
-        
-        if (analysisError) {
-          console.error('Error fetching analysis results:', analysisError);
-          throw analysisError;
-        }
-        
-        if (!analysisResults || analysisResults.length === 0) {
-                  // Don't set fallback data if no results
-        setTopTheme(null);
-          return;
-        }
-        
-        // Initialize counters for main themes
-        const themeCounters: Record<string, {
-          positive: number;
-          neutral: number;
-          negative: number;
-          total: number;
-        }> = {};
-        
-        MAIN_THEMES.forEach(theme => {
-          themeCounters[theme] = {
-            positive: 0,
-            neutral: 0,
-            negative: 0,
-            total: 0
-          };
-        });
-        
-        // Keep track of total posts analyzed
-        let totalPostsAnalyzed = 0;
-        
-        // Process each analysis result
-        analysisResults.forEach(result => {
-          if (!result.themes || result.themes.length === 0) return;
-          
-          totalPostsAnalyzed++;
-          
-          // Get the sentiment of this result
-          const sentiment = result.sentiment || 'neutral';
-          
-          // Find all mapped themes in this result
-          const matchedThemes = new Set<string>();
-          
-          result.themes.forEach((theme: string) => {
-            const mappedTheme = THEME_MAPPING[theme.toLowerCase()];
-            if (mappedTheme) {
-              matchedThemes.add(mappedTheme);
-            }
-          });
-          
-          // Increment counters for each matched theme
-          matchedThemes.forEach(theme => {
-            themeCounters[theme].total += 1;
-            
-            if (sentiment === 'positive') {
-              themeCounters[theme].positive += 1;
-            } else if (sentiment === 'negative') {
-              themeCounters[theme].negative += 1;
-            } else {
-              themeCounters[theme].neutral += 1;
-            }
-          });
-        });
-        
-        // Find the theme with the highest total count
-        let topThemeName = MAIN_THEMES[0];
-        let topThemeCount = 0;
-        
-        for (const theme of MAIN_THEMES) {
-          if (themeCounters[theme].total > topThemeCount) {
-            topThemeName = theme;
-            topThemeCount = themeCounters[theme].total;
-          }
-        }
-        
-        // Calculate the dominant sentiment for the top theme
-        const topThemeData = themeCounters[topThemeName];
-        const sentiments = [
-          { type: 'positive', count: topThemeData.positive },
-          { type: 'neutral', count: topThemeData.neutral },
-          { type: 'negative', count: topThemeData.negative }
-        ];
-        
-        const dominantSentiment = sentiments.reduce((prev, current) => 
-          (current.count > prev.count) ? current : prev
-        );
-        
-        // Calculate percentage of posts that discussed this theme
-        const percentage = Math.round((topThemeData.total / totalPostsAnalyzed) * 100);
-        
-        // Set the top theme
-        setTopTheme({
-          name: topThemeName,
-          sentiment: dominantSentiment.type as 'positive' | 'neutral' | 'negative',
-          percentage: percentage
-        });
-        
-      } catch (err) {
-        console.error('Error fetching top theme:', err);
-        // Fallback data
-        setTopTheme({
-          name: 'Battery Life',
-          sentiment: 'negative',
-          percentage: 32
-        });
-      }
-    };
+  }, [fromDate, toDate]);
 
-    fetchSentimentStats();
-    fetchAnnouncementRelatedStats();
-    fetchRecentPosts();
-    fetchTopTheme();
-  }, []);
-
-  // Helper to get tooltip text for hover
   const getTooltipText = (type: 'negative' | 'neutral' | 'positive') => {
     if (!sentimentStats) return '';
-    
     switch(type) {
-      case 'negative':
-        return `${sentimentStats.negative_count} posts (${sentimentStats.negative_percent}%)`;
-      case 'neutral':
-        return `${sentimentStats.neutral_count} posts (${sentimentStats.neutral_percent}%)`;
-      case 'positive':
-        return `${sentimentStats.positive_count} posts (${sentimentStats.positive_percent}%)`;
+      case 'negative': return `${sentimentStats.negative_count} posts (${sentimentStats.negative_percent}%)`;
+      case 'neutral': return `${sentimentStats.neutral_count} posts (${sentimentStats.neutral_percent}%)`;
+      case 'positive': return `${sentimentStats.positive_count} posts (${sentimentStats.positive_percent}%)`;
     }
+  };
+
+  const getTotalPostsTitle = () => {
+    if (!fromDate && !toDate) return 'Total Posts Since Unlocked';
+    const formatDate = (iso: string) => new Date(iso.split('T')[0] + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    if (fromDate && toDate) return `Posts (${formatDate(fromDate)} - ${formatDate(toDate)})`;
+    if (fromDate) return `Posts Since ${formatDate(fromDate)}`;
+    if (toDate) return `Posts Until ${formatDate(toDate)}`;
+    return 'Total Posts Since Unlocked';
   };
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8 mt-2">
       <div className="bg-[#24262b] rounded-xl p-6 shadow-lg">
-        <h3 className="text-sm text-gray-400 uppercase mb-1">Total Posts Since Unlocked</h3>
+        <h3 className="text-sm text-gray-400 uppercase mb-1">{getTotalPostsTitle()}</h3>
         <div className="flex items-end">
-          <div className="text-4xl font-bold">{sentimentStats?.total_count ? sentimentStats.total_count.toLocaleString() : '...'}</div>
+          <div className="text-4xl font-bold">{
+            loading ? '...' : (filteredTotalPosts ?? sentimentStats?.total_count ?? 0).toLocaleString()
+          }</div>
         </div>
         <p className="text-xs text-gray-400 mt-2">
           <span className="text-sm text-green-500 mr-1">{postsLast24Hours}</span>
@@ -420,14 +339,11 @@ export default function Stats() {
       </div>
       
       <div className="bg-[#24262b] rounded-xl p-6 shadow-lg">
-        <h3 className="text-sm text-gray-400 uppercase mb-1">
-          Sentiment Distribution
-        </h3>
+        <h3 className="text-sm text-gray-400 uppercase mb-1">Sentiment Distribution</h3>
         {loading ? (
           <div className="h-[70px] flex items-center justify-center">Loading...</div>
         ) : (
           <>
-            {/* Percentage labels above the bar */}
             <div className="flex justify-between mb-3">
               <div className="text-center">
                 <div className="text-lg font-bold text-[#ff6384]">{sentimentStats?.negative_percent}%</div>
@@ -443,30 +359,21 @@ export default function Stats() {
               </div>
             </div>
             
-            {/* Thin bar container */}
             <div className="relative w-full mb-4">
-              {/* Background bar */}
               <div className="w-full h-2.5 bg-[#1a1c20] rounded-full"></div>
-              
-              {/* Interactive segments overlay */}
               <div className="absolute top-0 left-0 flex w-full h-2.5 rounded-full overflow-hidden">
-                {/* Negative segment */}
                 <div 
                   className="h-full bg-[#ff6384] cursor-pointer relative"
                   style={{ width: `${sentimentStats?.negative_percent || 0}%` }}
                   onMouseEnter={() => setHoverStat('negative')}
                   onMouseLeave={() => setHoverStat(null)}
                 ></div>
-                
-                {/* Neutral segment */}
                 <div 
                   className="h-full bg-gray-400 cursor-pointer relative"
                   style={{ width: `${sentimentStats?.neutral_percent || 0}%` }}
                   onMouseEnter={() => setHoverStat('neutral')}
                   onMouseLeave={() => setHoverStat(null)}
                 ></div>
-                
-                {/* Positive segment */}
                 <div 
                   className="h-full bg-[#44d7b6] cursor-pointer relative"
                   style={{ width: `${sentimentStats?.positive_percent || 0}%` }}
@@ -474,17 +381,13 @@ export default function Stats() {
                   onMouseLeave={() => setHoverStat(null)}
                 ></div>
               </div>
-              
-              {/* Tooltip that appears on hover */}
               {hoverStat && (
                 <div 
                   className="absolute -top-8 bg-black text-white text-xs py-1 px-2 rounded whitespace-nowrap pointer-events-none"
                   style={{ 
-                    left: hoverStat === 'negative' 
-                      ? `${(sentimentStats?.negative_percent || 0) / 2}%` 
-                      : hoverStat === 'neutral' 
-                        ? `${(sentimentStats?.negative_percent || 0) + ((sentimentStats?.neutral_percent || 0) / 2)}%` 
-                        : `${(sentimentStats?.negative_percent || 0) + (sentimentStats?.neutral_percent || 0) + ((sentimentStats?.positive_percent || 0) / 2)}%`,
+                    left: hoverStat === 'negative' ? `${(sentimentStats?.negative_percent || 0) / 2}%` 
+                      : hoverStat === 'neutral' ? `${(sentimentStats?.negative_percent || 0) + ((sentimentStats?.neutral_percent || 0) / 2)}%` 
+                      : `${(sentimentStats?.negative_percent || 0) + (sentimentStats?.neutral_percent || 0) + ((sentimentStats?.positive_percent || 0) / 2)}%`,
                     transform: 'translateX(-50%)'
                   }}
                 >
@@ -492,8 +395,6 @@ export default function Stats() {
                 </div>
               )}
             </div>
-            
-
           </>
         )}
       </div>
@@ -510,30 +411,20 @@ export default function Stats() {
           <>
             <div className="text-xl font-bold mb-1">{topTheme.name}</div>
             <div className="flex items-center">
-              <div className={`h-3 w-3 rounded-full mr-2 ${
-                topTheme.sentiment === 'positive' ? 'bg-[#44d7b6]' :
-                topTheme.sentiment === 'negative' ? 'bg-[#ff6384]' :
-                'bg-gray-400'
-              }`}></div>
-              <span className={
-                topTheme.sentiment === 'positive' ? 'text-[#44d7b6]' :
-                topTheme.sentiment === 'negative' ? 'text-[#ff6384]' :
-                'text-gray-400'
-              }>
+              <div className={`h-3 w-3 rounded-full mr-2 ${topTheme.sentiment === 'positive' ? 'bg-[#44d7b6]' : topTheme.sentiment === 'negative' ? 'bg-[#ff6384]' : 'bg-gray-400'}`}></div>
+              <span className={topTheme.sentiment === 'positive' ? 'text-[#44d7b6]' : topTheme.sentiment === 'negative' ? 'text-[#ff6384]' : 'text-gray-400'}>
                 {topTheme.sentiment.charAt(0).toUpperCase() + topTheme.sentiment.slice(1)} Sentiment
               </span>
             </div>
             <p className="text-xs text-gray-400 mt-2">{topTheme.percentage}% of discussions</p>
           </>
-        ) : (
-          <div className="text-gray-400">No theme data available</div>
-        )}
+        ) : <div className="text-gray-400">No theme data available</div>}
       </div>
       
       <div className="bg-[#24262b] rounded-xl p-6 shadow-lg">
         <h3 className="text-sm text-gray-400 uppercase mb-1">Announcement Relevance</h3>
         <div className="flex items-end">
-          <div className="text-4xl font-bold">{announcementRelatedPercent ? `${announcementRelatedPercent}%` : '...'}</div>
+          <div className="text-4xl font-bold">{loading ? '...' : `${announcementRelatedPercent}%`}</div>
         </div>
         <p className="text-xs text-gray-400 mt-2">discussed the May 8th product launch</p>
       </div>

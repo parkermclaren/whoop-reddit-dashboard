@@ -29,7 +29,12 @@ interface SatisfactionData {
   posts: PostData[];
 }
 
-export default function ProductSatisfactionInsights() {
+interface ProductSatisfactionInsightsProps {
+    fromDate?: string;
+    toDate?: string;
+}
+
+export default function ProductSatisfactionInsights({ fromDate, toDate }: ProductSatisfactionInsightsProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [satisfactionData, setSatisfactionData] = useState<Record<string, SatisfactionData>>({});
@@ -41,48 +46,90 @@ export default function ProductSatisfactionInsights() {
       try {
         setIsLoading(true);
         
-        // Step 1: Fetch users who have received products
-        const { data: receivedData, error: receivedError } = await supabase
+        // Step 1: Get post_ids from date range if specified
+        let postIds: string[] | null = null;
+        if (fromDate || toDate) {
+          const allPostIds = [];
+          let offset = 0;
+          const BATCH_SIZE = 1000;
+          let keepFetching = true;
+
+          while (keepFetching) {
+            let postsQuery = supabase.from('reddit_posts').select('id');
+            if (fromDate) postsQuery = postsQuery.gte('created_at', fromDate);
+            if (toDate) postsQuery = postsQuery.lte('created_at', toDate);
+            
+            const { data, error } = await postsQuery.range(offset, offset + BATCH_SIZE - 1);
+            
+            if (error) throw new Error(`Error fetching post IDs: ${error.message}`);
+            
+            if (data && data.length > 0) {
+              allPostIds.push(...data.map(p => p.id));
+              offset += data.length;
+            } else {
+              keepFetching = false;
+            }
+
+            if (data && data.length < BATCH_SIZE) {
+              keepFetching = false;
+            }
+          }
+          postIds = allPostIds;
+
+          if (postIds.length === 0) {
+            setSatisfactionData({});
+            setIsLoading(false);
+            return;
+          }
+        }
+        
+        // Step 2: Fetch users who have received products, batched by postIds
+        let receivedData: any[] = [];
+        const baseSelect = () => supabase
           .from('analysis_results')
-          .select('*')  // Don't try to join with reddit_posts
+          .select('*')
           .eq('has_received_product', true);
-          
-        if (receivedError) throw new Error(receivedError.message);
+
+        if (postIds) {
+          const batchSize = 500;
+          for (let i = 0; i < postIds.length; i += batchSize) {
+            const batchIds = postIds.slice(i, i + batchSize);
+            const { data, error } = await baseSelect().in('content_id', batchIds);
+            if (error) throw new Error(error.message);
+            if (data) receivedData.push(...data);
+          }
+        } else {
+          const { data, error } = await baseSelect();
+          if (error) throw new Error(error.message);
+          receivedData = data || [];
+        }
+        
         if (!receivedData) throw new Error('No data received');
         
-        console.log('Analysis Results:', receivedData);
-        
-        // Step 2: Get all content_ids so we can fetch the corresponding reddit posts
         const contentIds = receivedData
           .filter(item => item.content_id)
           .map(item => item.content_id);
         
-        console.log('Content IDs:', contentIds);
-        
-        // Create a map to store reddit posts by their ID
         let redditPosts: Record<string, any> = {};
         
         if (contentIds.length > 0) {
-          // Fetch corresponding reddit posts
-          const { data: postsData, error: postsError } = await supabase
-            .from('reddit_posts')
-            .select('*')
-            .in('id', contentIds);
-            
-          if (postsError) {
-            console.error('Error fetching reddit posts:', postsError);
-          } else if (postsData) {
-            console.log('Reddit Posts:', postsData);
-            
-            // Create a map for quick lookup
-            redditPosts = postsData.reduce((map: Record<string, any>, post) => {
-              map[post.id] = post;
-              return map;
-            }, {});
+          const postsMap: Record<string, any> = {};
+          const batchSize = 200;
+          for (let i = 0; i < contentIds.length; i += batchSize) {
+            const batchIds = contentIds.slice(i, i + batchSize);
+            const { data: postsData, error: postsError } = await supabase
+              .from('reddit_posts')
+              .select('*')
+              .in('id', batchIds);
+            if (postsError) {
+              console.error('Error fetching reddit posts:', postsError);
+            } else if (postsData) {
+              postsData.forEach(post => { postsMap[post.id] = post; });
+            }
           }
+          redditPosts = postsMap;
         }
         
-        // Process the data to create satisfaction insights
         const productSatisfactionMap: Record<string, {
           totalReceived: number;
           satisfied: number;
@@ -91,22 +138,11 @@ export default function ProductSatisfactionInsights() {
           posts: PostData[];
         }> = {};
         
-        // Process each analysis result
         receivedData.forEach(item => {
-          // Extract product name - assuming it's stored in the 'product_received' field
           const productName = item.product_received;
+          if (!productName || productName.toLowerCase() === 'unknown product') return;
+          if (productName !== 'WHOOP 5.0' && productName !== 'WHOOP MG') return;
           
-          // Skip unknown products
-          if (!productName || productName.toLowerCase() === 'unknown product') {
-            return;
-          }
-          
-          // Only include WHOOP 5.0 and WHOOP MG
-          if (productName !== 'WHOOP 5.0' && productName !== 'WHOOP MG') {
-            return;
-          }
-          
-          // Initialize product if not present
           if (!productSatisfactionMap[productName]) {
             productSatisfactionMap[productName] = {
               totalReceived: 0,
@@ -117,28 +153,14 @@ export default function ProductSatisfactionInsights() {
             };
           }
           
-          // Increment counts
           productSatisfactionMap[productName].totalReceived += 1;
-          
-          // Handle the quirk: if product_satisfaction is null for someone who has received the product, 
-          // treat it as neutral satisfaction
           const satisfaction = item.product_satisfaction || 'neutral';
+          if (satisfaction === 'positive') productSatisfactionMap[productName].satisfied += 1;
+          else if (satisfaction === 'negative') productSatisfactionMap[productName].dissatisfied += 1;
+          else productSatisfactionMap[productName].neutral += 1;
           
-          if (satisfaction === 'positive') {
-            productSatisfactionMap[productName].satisfied += 1;
-          } 
-          else if (satisfaction === 'negative') {
-            productSatisfactionMap[productName].dissatisfied += 1;
-          }
-          else {
-            // This covers both explicit 'neutral' and NULL values converted to 'neutral'
-            productSatisfactionMap[productName].neutral += 1;
-          }
-          
-          // Try to find the corresponding Reddit post
           if (item.content_id && redditPosts[item.content_id]) {
             const post = redditPosts[item.content_id];
-            
             productSatisfactionMap[productName].posts.push({
               id: item.id || `post-${Date.now()}-${Math.random()}`,
               title: post.title || 'Untitled Post',
@@ -146,9 +168,7 @@ export default function ProductSatisfactionInsights() {
               satisfaction: satisfaction as 'positive' | 'neutral' | 'negative',
               engagement: (post.upvotes || 0) + (post.comments || 0)
             });
-          }
-          // Fallback if we have title/url directly on the analysis result
-          else if (item.title && item.url) {
+          } else if (item.title && item.url) {
             productSatisfactionMap[productName].posts.push({
               id: item.id || `post-${Date.now()}-${Math.random()}`,
               title: item.title,
@@ -159,36 +179,17 @@ export default function ProductSatisfactionInsights() {
           }
         });
         
-        // Convert to final data structure
         const satisfactionDataRecord: Record<string, SatisfactionData> = {};
-        
         for (const [productName, data] of Object.entries(productSatisfactionMap)) {
-          // Remove duplicate posts (if any)
           const uniquePosts: PostData[] = [];
-          const postIds = new Set();
-          
+          const seen = new Set();
           data.posts.forEach(post => {
-            // Only add if we haven't seen this ID yet
-            if (!postIds.has(post.id)) {
-              postIds.add(post.id);
-              uniquePosts.push(post);
-            }
+            if (!seen.has(post.id)) { seen.add(post.id); uniquePosts.push(post); }
           });
-          
-          // Sort posts by engagement (highest first)
           const sortedPosts = uniquePosts.sort((a, b) => b.engagement - a.engagement);
-          
-          satisfactionDataRecord[productName] = {
-            productName,
-            totalReceived: data.totalReceived,
-            satisfied: data.satisfied,
-            neutral: data.neutral,
-            dissatisfied: data.dissatisfied,
-            posts: sortedPosts
-          };
+          satisfactionDataRecord[productName] = { ...data, productName, posts: sortedPosts };
         }
         
-        // Ensure both products have entries even if there's no data
         const products = ['WHOOP 5.0', 'WHOOP MG'];
         products.forEach(productName => {
           if (!satisfactionDataRecord[productName]) {
@@ -213,7 +214,7 @@ export default function ProductSatisfactionInsights() {
     }
     
     fetchProductSatisfactionData();
-  }, []);
+  }, [fromDate, toDate]);
 
   // Helper function to get color based on sentiment
   const getSentimentColor = (sentiment: string): string => {

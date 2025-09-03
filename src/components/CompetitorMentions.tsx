@@ -35,6 +35,11 @@ type CompetitorSummary = {
   originalNames: string[]; // Store all original names that were combined
 };
 
+interface CompetitorMentionsProps {
+    fromDate?: string;
+    toDate?: string;
+}
+
 // Create Supabase client
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
@@ -138,7 +143,7 @@ const DefaultTextLogo = ({ name }: { name: string }) => (
                   </div>
 );
 
-export default function CompetitorMentions() {
+export default function CompetitorMentions({ fromDate, toDate }: CompetitorMentionsProps) {
   const [competitors, setCompetitors] = useState<CompetitorSummary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -147,16 +152,66 @@ export default function CompetitorMentions() {
   useEffect(() => {
     async function fetchCompetitorData() {
       try {
-        // Query to get all competitor mentions
-        const { data: mentionsData, error: mentionsError } = await supabase
+        // Step 1: Get post_ids from date range if specified
+        let postIds: string[] | null = null;
+        if (fromDate || toDate) {
+          const allPostIds = [];
+          let offset = 0;
+          const BATCH_SIZE = 1000;
+          let keepFetching = true;
+
+          while (keepFetching) {
+            let postsQuery = supabase.from('reddit_posts').select('id');
+            if (fromDate) postsQuery = postsQuery.gte('created_at', fromDate);
+            if (toDate) postsQuery = postsQuery.lte('created_at', toDate);
+            
+            const { data, error } = await postsQuery.range(offset, offset + BATCH_SIZE - 1);
+            
+            if (error) throw new Error(`Error fetching post IDs: ${error.message}`);
+            
+            if (data && data.length > 0) {
+              allPostIds.push(...data.map(p => p.id));
+              offset += data.length;
+            } else {
+              keepFetching = false;
+            }
+
+            if (data && data.length < BATCH_SIZE) {
+              keepFetching = false;
+            }
+          }
+          postIds = allPostIds;
+
+          if (postIds.length === 0) {
+            setCompetitors([]);
+            setIsLoading(false);
+            return;
+          }
+        }
+
+        // Step 2: Fetch competitor mentions using postIds
+        let mentionsData: any[] = [];
+        const baseSelect = () => supabase
           .from('analysis_results')
           .select('competitor_mentions, content_id, content_type')
           .not('competitor_mentions', 'eq', '[]');
 
-        if (mentionsError) throw mentionsError;
+        if (postIds) {
+          const batchSize = 500;
+          for (let i = 0; i < postIds.length; i += batchSize) {
+            const batchIds = postIds.slice(i, i + batchSize);
+            const { data, error } = await baseSelect().in('content_id', batchIds);
+            if (error) throw error;
+            if (data) mentionsData.push(...data);
+          }
+        } else {
+          const { data, error } = await baseSelect();
+          if (error) throw error;
+          mentionsData = data || [];
+        }
+
         if (!mentionsData) throw new Error('No data returned');
 
-        // Process the data to count mentions by competitor
         const competitorMap = new Map<string, CompetitorSummary>();
 
         mentionsData.forEach(row => {
@@ -164,17 +219,10 @@ export default function CompetitorMentions() {
             row.competitor_mentions.forEach((mention: CompetitorMention) => {
               const originalName = mention.competitor;
               if (!originalName) return;
-              
-              // Normalize the competitor name (combine related names)
               const normalizedName = normalizeCompetitorName(originalName);
-              
-              // Skip if normalizedName is null (e.g., WHOOP mentions)
               if (!normalizedName) return;
-
               const existingCompetitor = competitorMap.get(normalizedName);
               const sentiment = mention.comp_sentiment?.toLowerCase() || 'neutral';
-
-              // Create a quote object
               const quote: CompetitorQuote = {
                 text: mention.comp_quote,
                 sentiment: sentiment as 'positive' | 'neutral' | 'negative' | 'mixed',
@@ -182,18 +230,13 @@ export default function CompetitorMentions() {
                 contentId: row.content_id,
                 originalName: originalName
               };
-
               if (existingCompetitor) {
                 existingCompetitor.count += 1;
                 if (sentiment === 'positive') existingCompetitor.sentiments.positive += 1;
                 else if (sentiment === 'negative') existingCompetitor.sentiments.negative += 1;
                 else if (sentiment === 'mixed') existingCompetitor.sentiments.mixed += 1;
                 else existingCompetitor.sentiments.neutral += 1;
-                
-                // Add the quote
                 existingCompetitor.quotes.push(quote);
-                
-                // Add original name if it's not already in the list
                 if (!existingCompetitor.originalNames.includes(originalName)) {
                   existingCompetitor.originalNames.push(originalName);
                 }
@@ -218,7 +261,6 @@ export default function CompetitorMentions() {
           }
         });
 
-        // Now get post data to enrich quotes with upvotes and URLs
         const uniqueContentIds = new Set<string>();
         competitorMap.forEach(competitor => {
           competitor.quotes.forEach(quote => {
@@ -226,65 +268,47 @@ export default function CompetitorMentions() {
           });
         });
 
-        // Map to store content_id -> data
         const postsData = new Map<string, { ups: number, num_comments: number, url?: string }>();
-
         if (uniqueContentIds.size > 0) {
-          try {
-            // Fetch in small batches to avoid query size limits
-            const batchSize = 5;
-            const contentIdsArray = Array.from(uniqueContentIds);
-            
-            for (let i = 0; i < contentIdsArray.length; i += batchSize) {
-              const batchIds = contentIdsArray.slice(i, i + batchSize);
-              
-              const { data: postsBatch, error: batchError } = await supabase
-                .from('reddit_posts')
-                .select('id, ups, num_comments, permalink')
-                .in('id', batchIds);
-                
-              if (batchError) {
-                console.error(`Batch ${i/batchSize} error:`, batchError);
-                continue;
-              }
-              
-              if (postsBatch) {
-                postsBatch.forEach(post => {
-                  postsData.set(post.id, { 
-                    ups: post.ups || 0,
-                    num_comments: post.num_comments || 0,
-                    url: post.permalink ? `https://reddit.com${post.permalink}` : undefined
-                  });
-                });
-              }
+          const contentIdsArray = Array.from(uniqueContentIds);
+          const batchSize = 200;
+          for (let i = 0; i < contentIdsArray.length; i += batchSize) {
+            const batchIds = contentIdsArray.slice(i, i + batchSize);
+            const { data: postsBatch, error: batchError } = await supabase
+              .from('reddit_posts')
+              .select('id, ups, num_comments, permalink')
+              .in('id', batchIds);
+            if (batchError) {
+              console.error(`Batch ${i/batchSize} error:`, batchError);
+              continue;
             }
-            
-            // Update quotes with post data
-            competitorMap.forEach(competitor => {
-              competitor.quotes = competitor.quotes.map(quote => {
-                const postData = postsData.get(quote.contentId);
-                return {
-                  ...quote,
-                  postUpvotes: postData?.ups,
-                  commentCount: postData?.num_comments,
-                  postUrl: postData?.url
-                };
+            if (postsBatch) {
+              postsBatch.forEach(post => {
+                postsData.set(post.id, { 
+                  ups: post.ups || 0,
+                  num_comments: post.num_comments || 0,
+                  url: post.permalink ? `https://reddit.com${post.permalink}` : undefined
+                });
               });
-              
-              // Sort quotes by upvotes
-              competitor.quotes.sort((a, b) => (b.postUpvotes || 0) - (a.postUpvotes || 0));
-            });
-          } catch (err) {
-            console.warn("Error fetching post data:", err);
+            }
           }
         }
 
-        // Convert map to array and sort by count
-        const competitorArray = Array.from(competitorMap.values())
-          .sort((a, b) => b.count - a.count);
+        competitorMap.forEach(competitor => {
+          competitor.quotes = competitor.quotes.map(quote => {
+            const postData = postsData.get(quote.contentId);
+            return {
+              ...quote,
+              postUpvotes: postData?.ups,
+              commentCount: postData?.num_comments,
+              postUrl: postData?.url
+            };
+          });
+          competitor.quotes.sort((a, b) => (b.postUpvotes || 0) - (a.postUpvotes || 0));
+        });
 
+        const competitorArray = Array.from(competitorMap.values()).sort((a, b) => b.count - a.count);
         setCompetitors(competitorArray);
-        // Set the first competitor as selected by default
         if (competitorArray.length > 0 && !selectedCompetitor) {
           setSelectedCompetitor(competitorArray[0].name);
         }
@@ -297,7 +321,7 @@ export default function CompetitorMentions() {
     }
 
     fetchCompetitorData();
-  }, []);
+  }, [fromDate, toDate]);
 
   if (isLoading) {
     return (

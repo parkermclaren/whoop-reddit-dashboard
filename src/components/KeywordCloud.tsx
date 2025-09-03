@@ -82,7 +82,12 @@ const normalizeScores = (data: BubbleData[]): Map<string, number> => {
   return scores;
 };
 
-export default function FeatureAspectCloud() {
+interface KeywordCloudProps {
+  fromDate?: string;
+  toDate?: string;
+}
+
+export default function FeatureAspectCloud({ fromDate, toDate }: KeywordCloudProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [bubbleData, setBubbleData] = useState<BubbleData[]>([]);
@@ -174,13 +179,66 @@ export default function FeatureAspectCloud() {
       try {
         setIsLoading(true);
         
-        const { data, error } = await supabase
+        // Step 1: Get post_ids from date range if specified
+        let postIds: string[] | null = null;
+        if (fromDate || toDate) {
+          const allPostIds = [];
+          let offset = 0;
+          const BATCH_SIZE = 1000;
+          let keepFetching = true;
+
+          while (keepFetching) {
+            let postsQuery = supabase.from('reddit_posts').select('id');
+            if (fromDate) postsQuery = postsQuery.gte('created_at', fromDate);
+            if (toDate) postsQuery = postsQuery.lte('created_at', toDate);
+            
+            const { data, error } = await postsQuery.range(offset, offset + BATCH_SIZE - 1);
+            
+            if (error) throw new Error(`Error fetching post IDs: ${error.message}`);
+            
+            if (data && data.length > 0) {
+              allPostIds.push(...data.map(p => p.id));
+              offset += data.length;
+            } else {
+              keepFetching = false;
+            }
+
+            if (data && data.length < BATCH_SIZE) {
+              keepFetching = false;
+            }
+          }
+          postIds = allPostIds;
+          
+          // If date range is specified but no posts are found, exit early
+          if (postIds.length === 0) {
+            setBubbleData([]);
+            setNormalizedScores(new Map());
+            setIsLoading(false);
+            return;
+          }
+        }
+        
+        // Step 2: Fetch analysis_results using postIds
+        let analysisRows: any[] = [];
+        const baseSelect = () => supabase
           .from('analysis_results')
           .select('aspects, sentiment, content_id')
           .not('aspects', 'is', null)
           .not('aspects', 'eq', '[]');
-          
-        if (error) throw new Error(error.message);
+
+        if (postIds) {
+          const batchSize = 500;
+          for (let i = 0; i < postIds.length; i += batchSize) {
+            const batchIds = postIds.slice(i, i + batchSize);
+            const { data, error } = await baseSelect().in('content_id', batchIds);
+            if (error) throw new Error(error.message);
+            if (data) analysisRows.push(...data);
+          }
+        } else {
+          const { data, error } = await baseSelect();
+          if (error) throw new Error(error.message);
+          analysisRows = data || [];
+        }
         
         const featureFrequency: Record<string, { 
           count: number; 
@@ -189,11 +247,10 @@ export default function FeatureAspectCloud() {
           originalName: string; // Store the original name for display
         }> = {};
         
-        // Build a map of post upvotes for efficient lookup
-        const contentIds: string[] = Array.from(new Set((data || []).map((row: any) => row.content_id).filter(Boolean)));
+        const contentIds: string[] = Array.from(new Set((analysisRows || []).map((row: any) => row.content_id).filter(Boolean)));
         const postUpvotesMap = new Map<string, number>();
         if (contentIds.length > 0) {
-          const batchSize = 100; // avoid IN() limits
+          const batchSize = 100;
           for (let i = 0; i < contentIds.length; i += batchSize) {
             const batchIds = contentIds.slice(i, i + batchSize);
             const { data: postsData } = await supabase
@@ -206,41 +263,35 @@ export default function FeatureAspectCloud() {
           }
         }
         
-        data.forEach(item => {
+        analysisRows.forEach(item => {
           if (item.aspects && item.aspects.length > 0) {
             item.aspects.forEach((aspect: AspectData) => {
-              // First consolidate the feature, then normalize
               const originalName = aspect.feature.trim();
               const consolidatedName = consolidateFeature(originalName);
               
-              // Skip features that were filtered out
               if (!consolidatedName) return;
               
               if (!featureFrequency[consolidatedName]) {
-                featureFrequency[consolidatedName] = { 
-                  count: 0, 
+                featureFrequency[consolidatedName] = {
+                  count: 0,
                   sentiments: { positive: 0, neutral: 0, negative: 0 },
                   quotes: [],
-                  originalName: consolidatedName // Use consolidated name as display name
+                  originalName: consolidatedName
                 };
               }
               featureFrequency[consolidatedName].count += 1;
               
-              // Safely increment sentiment count
               const sentiment = aspect.sentiment;
               if (sentiment === 'positive' || sentiment === 'neutral' || sentiment === 'negative') {
                 featureFrequency[consolidatedName].sentiments[sentiment] += 1;
               }
               
-              // Store up to 3 quotes per feature, with upvotes if available on analysis result
               if (aspect.quote && aspect.quote.trim().length > 0) {
                 const upvotes = postUpvotesMap.get((item as any).content_id) || 0;
                 const quotesArr = featureFrequency[consolidatedName].quotes;
-                // Deduplicate by text to avoid near-duplicates from same post
                 if (!quotesArr.some(q => q.text === aspect.quote.trim())) {
                   quotesArr.push({ text: aspect.quote.trim(), upvotes });
                 }
-                // Keep only the top 2 by upvotes to stay memory/token efficient
                 quotesArr.sort((a, b) => (b.upvotes || 0) - (a.upvotes || 0));
                 if (quotesArr.length > 2) quotesArr.length = 2;
               }
@@ -252,7 +303,6 @@ export default function FeatureAspectCloud() {
           let mostCommonSentiment = 'neutral';
           let maxCount = 0;
           
-          // Find most common sentiment
           const sentimentEntries: [string, number][] = [
             ['positive', sentiments.positive],
             ['neutral', sentiments.neutral],
@@ -268,7 +318,7 @@ export default function FeatureAspectCloud() {
           
           return {
             id: consolidatedName,
-            name: originalName, // Use the consolidated name for display
+            name: originalName,
             value: count,
             sentiment: mostCommonSentiment,
             sentimentStats: sentiments,
@@ -277,7 +327,7 @@ export default function FeatureAspectCloud() {
         });
         
         bubbles.sort((a, b) => b.value - a.value);
-        const topBubbles = bubbles.slice(0, 20); // Reduced from 30 to 20 for smaller visualization
+        const topBubbles = bubbles.slice(0, 20);
         
         if (topBubbles.length > 0) {
           const scores = normalizeScores(topBubbles);
@@ -303,7 +353,7 @@ export default function FeatureAspectCloud() {
     }
     
     fetchFeatureAspectData();
-  }, []);
+  }, [fromDate, toDate]);
 
   // Helper function to add line breaks to text
   const formatText = (text: string, maxLength: number) => {

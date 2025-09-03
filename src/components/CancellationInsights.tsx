@@ -17,7 +17,12 @@ interface CancellationReason {
   sentiment_score: number;
 }
 
-export default function CancellationInsights() {
+interface CancellationInsightsProps {
+    fromDate?: string;
+    toDate?: string;
+}
+
+export default function CancellationInsights({ fromDate, toDate }: CancellationInsightsProps) {
   const [cancellationStats, setCancellationStats] = useState<CancellationStats | null>(null);
   const [cancellationReasons, setCancellationReasons] = useState<CancellationReason[]>([]);
   const [loading, setLoading] = useState(true);
@@ -27,101 +32,177 @@ export default function CancellationInsights() {
       try {
         const supabase = createClient();
         
-        // Get total posts count and cancellation mention count (Refactored to use direct counts)
-        let calculatedCancellationStats: CancellationStats | null = null;
+        // Step 1: Get post_ids from date range if specified, with pagination
+        let postIds: string[] | null = null;
+        if (fromDate || toDate) {
+            let allPostIds: string[] = [];
+            let offset = 0;
+            const BATCH_SIZE = 1000;
+            let keepFetching = true;
 
-        // Get total analyzed posts count
-        const { count: totalAnalyzedCount, error: totalError } = await supabase
-          .from('analysis_results')
-          .select('*', { count: 'exact', head: true })
-          .eq('content_type', 'post')
-          .not('extended_analysis_at', 'is', null);
+            while(keepFetching) {
+                let query = supabase.from('reddit_posts').select('id');
+                if (fromDate) query = query.gte('created_at', fromDate);
+                if (toDate) query = query.lte('created_at', toDate);
+                
+                const { data, error } = await query.range(offset, offset + BATCH_SIZE - 1);
 
-        if (totalError) throw totalError;
+                if (error) throw new Error(`Error fetching post IDs: ${error.message}`);
+                
+                if (data && data.length > 0) {
+                    allPostIds.push(...data.map(p => p.id));
+                    offset += data.length;
+                } else {
+                    keepFetching = false;
+                }
 
-        // Get cancellation mention count among analyzed posts
-        const { count: cancellationMentionTrueCount, error: cancellationError } = await supabase
-          .from('analysis_results')
-          .select('*', { count: 'exact', head: true })
-          .eq('content_type', 'post')
-          .not('extended_analysis_at', 'is', null)
-          .eq('cancellation_mention', true);
+                if (!data || data.length < BATCH_SIZE) {
+                    keepFetching = false;
+                }
+            }
+            postIds = allPostIds;
 
-        if (cancellationError) throw cancellationError;
-        
-        const total = totalAnalyzedCount === null ? 0 : totalAnalyzedCount;
-        const cancellationMentionsCount = cancellationMentionTrueCount === null ? 0 : cancellationMentionTrueCount;
-
-        if (total > 0) {
-          calculatedCancellationStats = {
-            cancellation_count: cancellationMentionsCount,
-            total_count: total,
-            cancellation_percent: parseFloat(((cancellationMentionsCount / total) * 100).toFixed(1))
-          };
-        } else {
-          calculatedCancellationStats = {
-            cancellation_count: 0,
-            total_count: 0,
-            cancellation_percent: 0
-          };
+            if (postIds.length === 0) {
+                setCancellationStats({ cancellation_count: 0, total_count: 0, cancellation_percent: 0 });
+                setCancellationReasons([]);
+                setLoading(false);
+                return;
+            }
         }
-        setCancellationStats(calculatedCancellationStats);
         
-        // Get cancellation reasons directly from analysis_results, joined with reddit_posts
-        const { data: reasonData, error: reasonError } = await supabase
+        let totalAnalyzedCount = 0;
+        let cancellationMentionTrueCount = 0;
+
+        const countBatch = async (ids?: string[]) => {
+          let totalQuery = supabase
+            .from('analysis_results')
+            .select('*', { count: 'exact', head: true })
+            .eq('content_type', 'post')
+            .not('extended_analysis_at', 'is', null);
+          if (ids) totalQuery = totalQuery.in('content_id', ids);
+          const { count: totalCountPart, error: totalErr } = await totalQuery;
+          if (totalErr) throw totalErr;
+          totalAnalyzedCount += totalCountPart || 0;
+
+          let cancellationQuery = supabase
+            .from('analysis_results')
+            .select('*', { count: 'exact', head: true })
+            .eq('content_type', 'post')
+            .not('extended_analysis_at', 'is', null)
+            .eq('cancellation_mention', true);
+          if (ids) cancellationQuery = cancellationQuery.in('content_id', ids);
+          const { count: cancellationCountPart, error: cancellationErr } = await cancellationQuery;
+          if (cancellationErr) throw cancellationErr;
+          cancellationMentionTrueCount += cancellationCountPart || 0;
+        };
+
+        if (postIds) {
+          const batchSize = 200; // Reduced batch size
+          for (let i = 0; i < postIds.length; i += batchSize) {
+            await countBatch(postIds.slice(i, i + batchSize));
+          }
+        } else {
+          await countBatch();
+        }
+
+        const calculatedCancellationStats: CancellationStats = {
+          cancellation_count: cancellationMentionTrueCount,
+          total_count: totalAnalyzedCount,
+          cancellation_percent: totalAnalyzedCount > 0 ? parseFloat(((cancellationMentionTrueCount / totalAnalyzedCount) * 100).toFixed(1)) : 0
+        };
+        setCancellationStats(calculatedCancellationStats);
+
+        let reasonsRows: any[] = [];
+        const baseReasons = () => supabase
           .from('analysis_results')
-          .select(`
-            id, 
-            cancellation_reason,
-            sentiment_score,
-            content_id
-          `)
+          .select(`id, cancellation_reason, sentiment_score, content_id`)
+          .eq('content_type', 'post') // Added for consistency
           .eq('cancellation_mention', true)
           .not('cancellation_reason', 'is', null)
           .not('cancellation_reason', 'eq', '')
-          .not('extended_analysis_at', 'is', null) // Added for consistency
-          .order('sentiment_score', { ascending: true }) // Most negative first
-          .limit(50);
-        
-        if (reasonError) {
-          console.error('Error fetching cancellation reasons:', reasonError);
-        } else if (reasonData) {
-          // Get the post details separately
-          const contentIds = reasonData.map(item => item.content_id);
+          .not('extended_analysis_at', 'is', null)
+          .order('sentiment_score', { ascending: true });
+
+        const fetchReasonsInBatches = async (ids?: string[]) => {
+          const allReasons: any[] = [];
+          const BATCH_SIZE = 1000; // Can be larger as it's for pagination
+          let offset = 0;
+          let keepFetching = true;
           
-          const { data: postsData, error: postsError } = await supabase
-            .from('reddit_posts')
-            .select('id, title, url')
-            .in('id', contentIds);
+          while(keepFetching) {
+            let query = baseReasons();
+            if (ids) query = query.in('content_id', ids);
             
-          if (postsError) {
-            console.error('Error fetching post details:', postsError);
+            const { data, error } = await query.range(offset, offset + BATCH_SIZE - 1);
+            if (error) {
+              console.error('Error fetching cancellation reasons batch:', error);
+              keepFetching = false; // Stop on error
+              throw error;
+            }
+
+            if (data && data.length > 0) {
+                allReasons.push(...data);
+                offset += data.length;
+            } else {
+                keepFetching = false;
+            }
+
+            if (!data || data.length < BATCH_SIZE) {
+                keepFetching = false;
+            }
           }
-          
-          // Create a map of post IDs to their details
-          const postsMap = new Map();
-          if (postsData) {
-            postsData.forEach(post => {
-              postsMap.set(post.id, {
-                title: post.title || '',
-                url: post.url || ''
+          return allReasons;
+        }
+
+        if (postIds) {
+          const batchSize = 200; // Reduced batch size
+          for (let i = 0; i < postIds.length; i += batchSize) {
+            const batchIds = postIds.slice(i, i + batchSize);
+            const reasonsBatch = await fetchReasonsInBatches(batchIds);
+            reasonsRows.push(...reasonsBatch);
+          }
+        } else {
+          reasonsRows = await fetchReasonsInBatches();
+        }
+
+        if (reasonsRows.length > 0) {
+          // De-duplicate reasons based on their unique ID to prevent React key errors
+          const uniqueReasons = Array.from(new Map(reasonsRows.map(item => [item.id, item])).values());
+
+          const contentIds = Array.from(new Set(uniqueReasons.map(item => item.content_id).filter(Boolean)));
+          const postsMap = new Map<string, { title: string; url: string }>();
+          const batchSize = 200;
+          for (let i = 0; i < contentIds.length; i += batchSize) {
+            const batchIds = contentIds.slice(i, i + batchSize);
+            const { data: postsData, error: postsError } = await supabase
+              .from('reddit_posts')
+              .select('id, title, url')
+              .in('id', batchIds);
+            if (postsError) {
+              console.error('Error fetching post details:', postsError);
+              continue;
+            }
+            if (postsData) {
+              postsData.forEach(post => {
+                postsMap.set(post.id, { title: post.title || '', url: post.url || '' });
               });
-            });
+            }
           }
-          
-          const formattedReasons = reasonData.map(item => {
+
+          const formattedReasons = uniqueReasons.map(item => {
             const postDetails = postsMap.get(item.content_id) || { title: '', url: '' };
-            
             return {
               id: item.id,
               reason: item.cancellation_reason,
               post_title: postDetails.title,
               post_url: postDetails.url,
               sentiment_score: item.sentiment_score
-            };
+            } as CancellationReason;
           });
-          
+
           setCancellationReasons(formattedReasons);
+        } else {
+          setCancellationReasons([]);
         }
       } catch (err) {
         console.error('Error fetching cancellation data:', err);
@@ -131,7 +212,7 @@ export default function CancellationInsights() {
     };
     
     fetchCancellationData();
-  }, []);
+  }, [fromDate, toDate]);
   
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
