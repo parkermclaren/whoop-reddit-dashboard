@@ -6,7 +6,6 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/utils/supabase/client';
 import { format } from 'date-fns';
 import Header from '@/components/Header';
-import DateFilter from '@/components/DateFilter';
 
 type Post = {
   id: string;
