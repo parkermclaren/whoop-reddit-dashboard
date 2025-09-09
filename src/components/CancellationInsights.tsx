@@ -14,7 +14,7 @@ interface CancellationReason {
   reason: string;
   post_title: string;
   post_url: string;
-  sentiment_score: number;
+  upvotes: number;
 }
 
 interface CancellationInsightsProps {
@@ -115,13 +115,12 @@ export default function CancellationInsights({ fromDate, toDate }: CancellationI
         let reasonsRows: any[] = [];
         const baseReasons = () => supabase
           .from('analysis_results')
-          .select(`id, cancellation_reason, sentiment_score, content_id`)
+          .select(`id, cancellation_reason, content_id`)
           .eq('content_type', 'post') // Added for consistency
           .eq('cancellation_mention', true)
           .not('cancellation_reason', 'is', null)
           .not('cancellation_reason', 'eq', '')
-          .not('extended_analysis_at', 'is', null)
-          .order('sentiment_score', { ascending: true });
+          .not('extended_analysis_at', 'is', null);
 
         const fetchReasonsInBatches = async (ids?: string[]) => {
           const allReasons: any[] = [];
@@ -170,13 +169,13 @@ export default function CancellationInsights({ fromDate, toDate }: CancellationI
           const uniqueReasons = Array.from(new Map(reasonsRows.map(item => [item.id, item])).values());
 
           const contentIds = Array.from(new Set(uniqueReasons.map(item => item.content_id).filter(Boolean)));
-          const postsMap = new Map<string, { title: string; url: string }>();
+          const postsMap = new Map<string, { title: string; url: string; upvotes: number }>();
           const batchSize = 200;
           for (let i = 0; i < contentIds.length; i += batchSize) {
             const batchIds = contentIds.slice(i, i + batchSize);
             const { data: postsData, error: postsError } = await supabase
               .from('reddit_posts')
-              .select('id, title, url')
+              .select('id, title, url, ups')
               .in('id', batchIds);
             if (postsError) {
               console.error('Error fetching post details:', postsError);
@@ -184,21 +183,24 @@ export default function CancellationInsights({ fromDate, toDate }: CancellationI
             }
             if (postsData) {
               postsData.forEach(post => {
-                postsMap.set(post.id, { title: post.title || '', url: post.url || '' });
+                postsMap.set(post.id, { title: post.title || '', url: post.url || '', upvotes: post.ups || 0 });
               });
             }
           }
 
           const formattedReasons = uniqueReasons.map(item => {
-            const postDetails = postsMap.get(item.content_id) || { title: '', url: '' };
+            const postDetails = postsMap.get(item.content_id) || { title: '', url: '', upvotes: 0 };
             return {
               id: item.id,
               reason: item.cancellation_reason,
               post_title: postDetails.title,
               post_url: postDetails.url,
-              sentiment_score: item.sentiment_score
+              upvotes: postDetails.upvotes
             } as CancellationReason;
           });
+
+          // Sort by upvotes in descending order (highest upvotes first)
+          formattedReasons.sort((a, b) => b.upvotes - a.upvotes);
 
           setCancellationReasons(formattedReasons);
         } else {

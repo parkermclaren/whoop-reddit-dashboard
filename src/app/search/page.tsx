@@ -124,7 +124,7 @@ const canonicalizeCompetitorName = (name: string): string | null => {
   if (normalizedName.includes('fitbit')) return 'Fitbit';
   if (normalizedName.includes('oura')) return 'Oura';
   if (normalizedName.includes('suunto')) return 'Suunto';
-  if (normalizedName.includes('amazfit')) return 'Amazfit';
+  if (normalizedName.includes('amazfit') || normalizedName.includes('amazefit')) return 'Amazfit';
   if (normalizedName.includes('withings')) return 'Withings';
   if (normalizedName.includes('polar')) return 'Polar';
   if (normalizedName.includes('eight sleep')) return 'Eight Sleep';
@@ -134,7 +134,9 @@ const canonicalizeCompetitorName = (name: string): string | null => {
   if (normalizedName.includes('sense.ai') || normalizedName.includes('sense ai')) return 'sense.ai';
   if (normalizedName.includes('zyke')) return 'Zyke';
   if (normalizedName.includes('orangetheory') || normalizedName.includes('orange theory')) return 'Orangetheory';
-  if (normalizedName.includes('helio') || normalizedName.includes('helios')) return 'Helio Band';
+  if (normalizedName.includes('helio') || normalizedName.includes('helios')) return 'Amazfit';
+  if (normalizedName.includes('hilio') || normalizedName.includes('akttia')) return 'Hilio';
+  if (normalizedName.includes('myzone')) return 'Myzone';
   // default: return original unmodified (but trimmed) name
   return name.trim();
 };
@@ -1833,15 +1835,18 @@ function SearchPageInner() {
                 >
                   Search
                 </button>
-                {searchParams.get('all') !== '1' && (
-                  <button
-                    onClick={toggleAllMode}
-                    className="text-sm px-3 py-2 rounded-md transition-colors border bg-transparent text-blue-300 hover:text-blue-200 border-transparent"
-                    title="See full dataset"
-                  >
-                    See full dataset
-                  </button>
-                )}
+                <button
+                  onClick={toggleAllMode}
+                  className={`text-sm px-3 py-2 rounded-md transition-colors border ${
+                    searchParams.get('all') !== '1' 
+                      ? 'bg-transparent text-blue-300 hover:text-blue-200 border-transparent' 
+                      : 'bg-transparent text-transparent border-transparent cursor-default'
+                  }`}
+                  title={searchParams.get('all') !== '1' ? "See full dataset" : "Currently viewing full dataset"}
+                  style={{ visibility: searchParams.get('all') !== '1' ? 'visible' : 'hidden' }}
+                >
+                  See full dataset
+                </button>
 
                 {/* Sentiment bar - now aligned with other elements */}
                 {(filters.length > 0 || globalSentimentStatus === 'complete') && sentimentSummary.total > 0 && (
@@ -2441,5 +2446,3 @@ export default function SearchPage() {
     </Suspense>
   );
 }
-
-

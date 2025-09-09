@@ -122,7 +122,7 @@ export default function FeatureAspectCloud({ fromDate, toDate }: KeywordCloudPro
     const normalizedName = featureName.toLowerCase().trim();
     
     // Filter out non-feature terms
-    if (normalizedName.includes('advanced labs') || normalizedName.includes('strain')) {
+    if (normalizedName.includes('advanced labs') || normalizedName.includes('strain') || normalizedName.includes('journal')) {
       return ''; // Return empty string to filter out
     }
     

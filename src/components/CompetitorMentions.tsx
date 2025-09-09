@@ -78,7 +78,7 @@ const normalizeCompetitorName = (name: string): string | null => {
   if (normalizedName.includes('suunto')) return 'Suunto';
   
   // Amazfit variations
-  if (normalizedName.includes('amazfit')) return 'Amazfit';
+  if (normalizedName.includes('amazfit') || normalizedName.includes('amazefit')) return 'Amazfit';
   
   // Withings variations
   if (normalizedName.includes('withings')) return 'Withings';
@@ -107,31 +107,46 @@ const normalizeCompetitorName = (name: string): string | null => {
   // Orangetheory variations
   if (normalizedName.includes('orangetheory') || normalizedName.includes('orange theory')) return 'Orangetheory';
   
-  // Helio Band variations
-  if (normalizedName.includes('helio') || normalizedName.includes('helios')) return 'Helio Band';
+  // Helio Band variations (consolidated into Amazfit since Helio is an Amazfit product)
+  if (normalizedName.includes('helio') || normalizedName.includes('helios')) return 'Amazfit';
+  
+  // Hilio variations (formerly Akttia)
+  if (normalizedName.includes('hilio') || normalizedName.includes('akttia')) return 'Hilio';
+  
+  // Myzone variations
+  if (normalizedName.includes('myzone')) return 'Myzone';
   
   return name;
+};
+
+// Mapping of competitor names to their display names (for cases where we want to show a different name)
+const competitorDisplayNames: Record<string, string> = {
+  'Hilio': 'Hilio',
+  // Force the card/category that would appear as "Aktiia" to display as "Hilio"
+  'Aktiia': 'Hilio',
+  'aktiia': 'Hilio'
 };
 
 // Mapping of competitor names to their logo URLs
 const competitorLogos: Record<string, string> = {
   'Apple Watch': '/logos/applelogo.png',
   'Samsung Watch': '/logos/samsung-logo-white.webp',
-  'COROS': '/logos/coros.png',
+  'COROS': '/logos/coross.png',
   'Garmin': '/logos/garmin-logo-white-on-black148-1827219.png',
-  'Oura': '/logos/Oura-circle-logo.webp',
+  'Oura': '/logos/oura_white.png',
   'Fitbit': '/logos/why-fitbit-symbol-png-logo-10.png',
   'Suunto': '/logos/suunto white.png',
-  'Amazfit': '/logos/amazfit-logo_brandlogos.net_8vpcc.png',
-  'Withings': '/logos/Logo_withings_black.png',
+  'Amazfit': '/logos/amazfit_white.png',
+  'Withings': '/logos/logo_withings_white.png',
   'KardiaMobile': '/logos/alivecor(kardia).png',
   'Pulse': '/logos/pulse. logo.svg',
   'Eight Sleep': '/logos/Eight-Sleep.webp',
   'QardioCore': '/logos/qlogo.png',
-  'Polar': '/logos/Polar-logo-300x125.png',
+  'Polar': '/logos/Polar-Logo.png',
   'Google Pixel Watch': '/logos/Google__G__logo.svg.webp',
-  'Orangetheory': '',
-  'Helio Band': '',
+  'Orangetheory': '/logos/Orangetheory-Fitness-Logo.png',
+  'Hilio': '/logos/hilo.webp',
+  'Myzone': '/logos/myzone.webp',
   'sense.ai': '',
   'Zyke': ''
 };
@@ -231,6 +246,9 @@ export default function CompetitorMentions({ fromDate, toDate }: CompetitorMenti
                 originalName: originalName
               };
               if (existingCompetitor) {
+                existingCompetitor.name = competitorDisplayNames[normalizedName] || normalizedName;
+                // Keep logo in sync with displayed name
+                existingCompetitor.logo = competitorLogos[existingCompetitor.name] || competitorLogos[normalizedName] || existingCompetitor.logo;
                 existingCompetitor.count += 1;
                 if (sentiment === 'positive') existingCompetitor.sentiments.positive += 1;
                 else if (sentiment === 'negative') existingCompetitor.sentiments.negative += 1;
@@ -241,8 +259,9 @@ export default function CompetitorMentions({ fromDate, toDate }: CompetitorMenti
                   existingCompetitor.originalNames.push(originalName);
                 }
               } else {
+                const displayName = competitorDisplayNames[normalizedName] || normalizedName;
                 const newCompetitor: CompetitorSummary = {
-                  name: normalizedName,
+                  name: displayName,
                   count: 1,
                   sentiments: {
                     positive: sentiment === 'positive' ? 1 : 0,
@@ -250,7 +269,7 @@ export default function CompetitorMentions({ fromDate, toDate }: CompetitorMenti
                     neutral: sentiment === 'neutral' ? 1 : 0,
                     mixed: sentiment === 'mixed' ? 1 : 0,
                   },
-                  logo: competitorLogos[normalizedName] || '',
+                  logo: competitorLogos[displayName] || competitorLogos[normalizedName] || '',
                   quotes: [quote],
                   isLoading: false,
                   originalNames: [originalName]
@@ -349,10 +368,14 @@ export default function CompetitorMentions({ fromDate, toDate }: CompetitorMenti
       <div className="md:w-1/2">
         <div className="grid grid-cols-3 gap-2 max-h-[480px] overflow-y-auto pr-2">
           {competitors.map((competitor) => {
-            // Determine if this logo needs a white background
-            const needsWhiteBackground = ['Amazfit', 'Withings', 'Polar', 'QardioCore'].includes(competitor.name);
             // Determine if this logo needs larger size
-            const needsLargerSize = ['Garmin', 'Samsung Watch', 'Amazfit', 'Pulse', 'Suunto', 'Withings', 'Google Pixel Watch'].includes(competitor.name);
+            const needsLargerSize = ['Garmin', 'Samsung Watch', 'Amazfit', 'Pulse', 'Suunto', 'Withings', 'Google Pixel Watch', 'COROS', 'Polar'].includes(competitor.name);
+            // Determine if this logo needs extra large size (50% larger than normal large)
+            const needsExtraLargeSize = ['Polar', 'Amazfit', 'COROS', 'Withings'].includes(competitor.name);
+            // Orangetheory at 75% larger than normal large
+            const needsSeventyFivePercentLarger = ['Orangetheory'].includes(competitor.name);
+            // Determine if this logo needs super large size (100% larger than normal large)
+            const needsSuperLargeSize = ['QardioCore'].includes(competitor.name);
             // Determine if this logo needs to be in a circle
             const needsCircle = ['Oura', 'KardiaMobile', 'Eight Sleep'].includes(competitor.name);
             // Check if logo exists or should use default text
@@ -367,13 +390,18 @@ export default function CompetitorMentions({ fromDate, toDate }: CompetitorMenti
                 onClick={() => setSelectedCompetitor(competitor.name)}
               >
                 <div className={`w-full h-full flex items-center justify-center overflow-hidden ${
-                  needsWhiteBackground ? 'bg-white rounded-lg' : ''
-                } ${needsCircle ? 'rounded-full' : ''}`}>
-                  {hasLogo ? (
+                  needsCircle ? 'rounded-full' : ''
+                }`}>
+                  {competitor.logo ? (
                     <img 
                       src={competitor.logo} 
                       alt={`${competitor.name} logo`} 
-                      className={`object-contain ${needsLargerSize ? 'w-16 h-16' : 'w-14 h-14'}`}
+                      className={`object-contain ${
+                        needsSuperLargeSize ? 'w-32 h-32' :
+                        needsSeventyFivePercentLarger ? 'w-28 h-28' :
+                        needsExtraLargeSize ? 'w-24 h-24' : 
+                        needsLargerSize ? 'w-16 h-16' : 'w-14 h-14'
+                      }`}
                       onError={(e) => {
                         const target = e.target as HTMLImageElement;
                         // If image fails to load, fallback to text logo
@@ -413,14 +441,20 @@ export default function CompetitorMentions({ fromDate, toDate }: CompetitorMenti
           <>
             <div className="flex items-center space-x-3 mb-3 border-b border-gray-700 pb-2">
               <div className={`w-10 h-10 flex items-center justify-center overflow-hidden ${
-                ['Amazfit', 'Withings', 'Polar', 'QardioCore'].includes(selectedCompetitorData.name) ? 'bg-white rounded-full' : ''
-              } ${['Oura', 'KardiaMobile', 'Eight Sleep'].includes(selectedCompetitorData.name) ? 'rounded-full' : ''}`}>
-                {competitorLogos[selectedCompetitorData.name] && competitorLogos[selectedCompetitorData.name] !== '' ? (
+                ['Oura', 'KardiaMobile', 'Eight Sleep'].includes(selectedCompetitorData.name) ? 'rounded-full' : ''
+              }`}>
+                {competitorLogos[selectedCompetitorData.name] ? (
                   <img 
                     src={selectedCompetitorData.logo} 
                     alt={`${selectedCompetitorData.name} logo`} 
                     className={`object-contain ${
-                      ['Garmin', 'Samsung Watch', 'Amazfit', 'Pulse', 'Suunto', 'Withings', 'Google Pixel Watch'].includes(selectedCompetitorData.name) 
+                      ['QardioCore'].includes(selectedCompetitorData.name) 
+                        ? 'w-18 h-18' :
+                      ['Orangetheory'].includes(selectedCompetitorData.name)
+                        ? 'w-16 h-16' :
+                      ['Polar', 'Amazfit', 'COROS', 'Withings'].includes(selectedCompetitorData.name) 
+                        ? 'w-14 h-14' :
+                      ['Garmin', 'Samsung Watch', 'Pulse', 'Suunto', 'Google Pixel Watch'].includes(selectedCompetitorData.name) 
                         ? 'w-9 h-9' : 'w-8 h-8'
                     }`}
                     onError={(e) => {
