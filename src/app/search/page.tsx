@@ -6,6 +6,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/utils/supabase/client';
 import { format } from 'date-fns';
 import Header from '@/components/Header';
+import DateFilter from '@/components/DateFilter';
 
 type Post = {
   id: string;
@@ -152,6 +153,14 @@ function SearchPageInner() {
 
   const initialQuery = useMemo(() => searchParams.get('q') || '', [searchParams]);
   const [queryInput, setQueryInput] = useState<string>(initialQuery);
+  
+  // Sort state derived from URL
+  const sortBy = useMemo<'ups' | 'date'>(() => (searchParams.get('sort') === 'date' ? 'date' : 'ups'), [searchParams]);
+  const sortDir = useMemo<'asc' | 'desc'>(() => (searchParams.get('dir') === 'asc' ? 'asc' : 'desc'), [searchParams]);
+  
+  // Date filtering state
+  const [fromDate, setFromDate] = useState<string | null>(null);
+  const [toDate, setToDate] = useState<string | null>(null);
   const [results, setResults] = useState<Post[]>([]);
   const [allResults, setAllResults] = useState<Post[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
@@ -191,6 +200,12 @@ function SearchPageInner() {
   const filterButtonRef = useRef<HTMLButtonElement | null>(null);
   const filterPanelRef = useRef<HTMLDivElement | null>(null);
   const [filterPanelPos, setFilterPanelPos] = useState<{ left: number; top: number; width: number } | null>(null);
+
+  // Date popover UI state (compact "Within" chip)
+  const [isDateOpen, setIsDateOpen] = useState<boolean>(false);
+  const dateButtonRef = useRef<HTMLButtonElement | null>(null);
+  const datePanelRef = useRef<HTMLDivElement | null>(null);
+  const [datePanelPos, setDatePanelPos] = useState<{ left: number; top: number; width: number } | null>(null);
 
   // Derived: selected sentiment filter (if any)
   const selectedSentimentFilter = useMemo(() => {
@@ -245,7 +260,61 @@ function SearchPageInner() {
     setQueryInput(initialQuery);
   }, [initialQuery]);
 
+  // Initialize date filters from URL params
+  useEffect(() => {
+    const fromParam = searchParams.get('from');
+    const toParam = searchParams.get('to');
+    setFromDate(fromParam || null);
+    setToDate(toParam || null);
+  }, [searchParams]);
 
+  // Update URL when date filters change
+  const updateDateInURL = useCallback((newFromDate: string | null, newToDate: string | null) => {
+    const params = new URLSearchParams(searchParams);
+    
+    if (newFromDate) {
+      params.set('from', newFromDate);
+    } else {
+      params.delete('from');
+    }
+    
+    if (newToDate) {
+      params.set('to', newToDate);
+    } else {
+      params.delete('to');
+    }
+    
+    router.replace(`${pathname}?${params.toString()}`);
+  }, [searchParams, router, pathname]);
+
+  const handleFromDateChange = useCallback((date: string | null) => {
+    setFromDate(date);
+    updateDateInURL(date, toDate);
+  }, [toDate, updateDateInURL]);
+
+  const handleToDateChange = useCallback((date: string | null) => {
+    setToDate(date);
+    updateDateInURL(fromDate, date);
+  }, [fromDate, updateDateInURL]);
+
+  // Update URL when sort changes
+  const updateSortInURL = useCallback((newSortBy: 'date' | 'ups', newSortDir: 'asc' | 'desc') => {
+    const params = new URLSearchParams(searchParams);
+    params.set('sort', newSortBy);
+    params.set('dir', newSortDir);
+    params.set('page', '1');
+    router.replace(`${pathname}?${params.toString()}`);
+  }, [searchParams, router, pathname]);
+
+  const handleToggleSort = useCallback((column: 'date' | 'ups') => {
+    if (column === sortBy) {
+      const nextDir: 'asc' | 'desc' = sortDir === 'desc' ? 'asc' : 'desc';
+      updateSortInURL(column, nextDir);
+    } else {
+      // default to desc when switching columns (recency/highest first)
+      updateSortInURL(column, 'desc');
+    }
+  }, [sortBy, sortDir, updateSortInURL]);
 
   // Cleanup timeouts on unmount
   useEffect(() => {
@@ -466,6 +535,74 @@ function SearchPageInner() {
     };
   }, [isFilterOpen]);
 
+  // Compute position for date popover
+  useEffect(() => {
+    if (!isDateOpen || !dateButtonRef.current) return;
+    const compute = () => {
+      const r = dateButtonRef.current!.getBoundingClientRect();
+      const width = Math.min(520, Math.max(420, r.width));
+      const left = Math.max(12, Math.min(r.left, window.innerWidth - width - 12));
+      const top = Math.max(12, r.bottom + 8);
+      setDatePanelPos({ left, top, width });
+    };
+    compute();
+    window.addEventListener('resize', compute);
+    window.addEventListener('scroll', compute, true);
+    return () => {
+      window.removeEventListener('resize', compute);
+      window.removeEventListener('scroll', compute, true);
+    };
+  }, [isDateOpen]);
+
+  // Close date popover on Escape
+  useEffect(() => {
+    if (!isDateOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setIsDateOpen(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isDateOpen]);
+
+  // Helpers: preset/label logic
+  const isPresetActive = useCallback((days: number | null) => {
+    if (days === null) return !fromDate && !toDate;
+    if (!fromDate || !toDate) return false;
+    const now = new Date();
+    const expectedFrom = new Date(now);
+    expectedFrom.setDate(now.getDate() - days);
+    const fromDiff = Math.abs(new Date(fromDate).getTime() - expectedFrom.getTime());
+    const toDiff = Math.abs(new Date(toDate).getTime() - now.getTime());
+    return fromDiff < 3600000 && toDiff < 3600000; // 1h tolerance
+  }, [fromDate, toDate]);
+
+  const setPresetRange = useCallback((days: number | null) => {
+    if (days === null) {
+      setFromDate(null);
+      setToDate(null);
+      updateDateInURL(null, null);
+      return;
+    }
+    const now = new Date();
+    const from = new Date(now);
+    from.setDate(now.getDate() - days);
+    const f = from.toISOString();
+    const t = now.toISOString();
+    setFromDate(f);
+    setToDate(t);
+    updateDateInURL(f, t);
+  }, [updateDateInURL]);
+
+  const formatRangeLabel = useMemo(() => {
+    const formatShort = (iso?: string | null) => {
+      if (!iso) return '';
+      const d = new Date(iso);
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    };
+    if (!fromDate && !toDate) return 'All time';
+    if (fromDate && toDate) return `${formatShort(fromDate)} – ${formatShort(toDate)}`;
+    if (fromDate) return `${formatShort(fromDate)} – now`;
+    return `until ${formatShort(toDate)}`;
+  }, [fromDate, toDate]);
+
   // Compute clamped filter panel position within viewport when opened
   useEffect(() => {
     if (!isFilterOpen) return;
@@ -528,10 +665,15 @@ function SearchPageInner() {
       const like = `%${q}%`;
 
       // Count total rows
-      const { count, error: countError } = await supabase
+      let countQuery = supabase
         .from('reddit_posts')
         .select('*', { count: 'exact', head: true })
         .or(`title.ilike.${like},body.ilike.${like}`);
+      
+      if (fromDate) countQuery = countQuery.gte('created_at', fromDate);
+      if (toDate) countQuery = countQuery.lte('created_at', toDate);
+      
+      const { count, error: countError } = await countQuery;
 
       if (countError) {
         throw new Error(countError.message);
@@ -593,13 +735,22 @@ function SearchPageInner() {
         return analysisMap;
       };
 
-      const { data: postsPage, error: pageError } = await supabase
+      let postsQuery = supabase
         .from('reddit_posts')
         .select('*')
-        .or(`title.ilike.${like},body.ilike.${like}`)
-        .order('ups', { ascending: false })
-        .order('id', { ascending: false })
-        .range(from, to);
+        .or(`title.ilike.${like},body.ilike.${like}`);
+      
+      if (fromDate) postsQuery = postsQuery.gte('created_at', fromDate);
+      if (toDate) postsQuery = postsQuery.lte('created_at', toDate);
+      
+      if (sortBy === 'date') {
+        postsQuery = postsQuery.order('created_at', { ascending: sortDir === 'asc' });
+      } else {
+        postsQuery = postsQuery.order('ups', { ascending: sortDir === 'asc' });
+      }
+      postsQuery = postsQuery.order('id', { ascending: sortDir === 'asc' });
+      
+      const { data: postsPage, error: pageError } = await postsQuery.range(from, to);
 
       if (pageError) {
         throw new Error(pageError.message);
@@ -702,7 +853,7 @@ function SearchPageInner() {
     } finally {
       setLoading(false);
     }
-  }, [PAGE_SIZE]);
+  }, [PAGE_SIZE, fromDate, toDate, sortBy, sortDir]);
 
   const performFetchAll = useCallback(async (pageParam: number, append: boolean) => {
     try {
@@ -716,9 +867,14 @@ function SearchPageInner() {
 
       const supabase = createClient();
 
-      const { count, error: countError } = await supabase
+      let countQuery = supabase
         .from('reddit_posts')
         .select('*', { count: 'exact', head: true });
+      
+      if (fromDate) countQuery = countQuery.gte('created_at', fromDate);
+      if (toDate) countQuery = countQuery.lte('created_at', toDate);
+      
+      const { count, error: countError } = await countQuery;
 
       if (countError) throw new Error(countError.message);
 
@@ -773,12 +929,21 @@ function SearchPageInner() {
         return analysisMap;
       };
 
-      const { data: postsPage, error: pageError } = await supabase
+      let postsQuery = supabase
         .from('reddit_posts')
-        .select('*')
-        .order('ups', { ascending: false })
-        .order('id', { ascending: false })
-        .range(from, to);
+        .select('*');
+      
+      if (sortBy === 'date') {
+        postsQuery = postsQuery.order('created_at', { ascending: sortDir === 'asc' });
+      } else {
+        postsQuery = postsQuery.order('ups', { ascending: sortDir === 'asc' });
+      }
+      postsQuery = postsQuery.order('id', { ascending: sortDir === 'asc' });
+      
+      if (fromDate) postsQuery = postsQuery.gte('created_at', fromDate);
+      if (toDate) postsQuery = postsQuery.lte('created_at', toDate);
+      
+      const { data: postsPage, error: pageError } = await postsQuery.range(from, to);
 
       if (pageError) throw new Error(pageError.message);
 
@@ -874,7 +1039,7 @@ function SearchPageInner() {
     } finally {
       setLoading(false);
     }
-  }, [PAGE_SIZE]);
+  }, [PAGE_SIZE, fromDate, toDate, sortBy, sortDir]);
 
   useEffect(() => {
     const q = (searchParams.get('q') || '').trim();
@@ -897,6 +1062,19 @@ function SearchPageInner() {
       setError(null);
     }
   }, [searchParams, performSearch, performFetchAll]);
+
+  // Re-run queries when date filters change (in case URL updates don't trigger effects)
+  useEffect(() => {
+    const q = (searchParams.get('q') || '').trim();
+    const all = searchParams.get('all') === '1';
+    setPage(1);
+    setHasMore(true);
+    if (all) {
+      performFetchAll(1, false);
+    } else if (q) {
+      performSearch(q, 1, false);
+    }
+  }, [fromDate, toDate]);
 
   const submitSearch = useCallback(() => {
     const q = queryInput.trim();
@@ -1270,7 +1448,7 @@ function SearchPageInner() {
 
     run();
     return () => { isCancelled = true; };
-  }, [filters, searchParams]);
+  }, [filters, searchParams, sortBy, sortDir]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
@@ -1432,6 +1610,8 @@ function SearchPageInner() {
   return (
     <main className="min-h-screen bg-[#1a1c20] text-white">
       <Header />
+      
+      
       <div className="container mx-auto px-4 py-6">
         <div className="bg-[#24262b] rounded-xl p-6 shadow-lg">
           <div className="mb-4 flex items-center justify-between">
@@ -1447,8 +1627,62 @@ function SearchPageInner() {
                   onChange={(e) => setQueryInput(e.target.value)}
                   onKeyDown={handleKeyDown}
                   placeholder="Search e.g. whoop 5.0"
-                  className="w-full max-w-xl bg-[#1E1F24] text-white placeholder-gray-400 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                  className="w-full max-w-lg bg-[#1E1F24] text-white placeholder-gray-400 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
                 />
+
+                {/* Within chip */}
+                <div className="relative">
+                  <button
+                    ref={dateButtonRef}
+                    onClick={() => setIsDateOpen((v) => !v)}
+                    className="inline-flex items-center gap-2 rounded-md bg-[#1E1F24] border border-[#3b3d44] px-3 h-10 text-sm text-gray-200 hover:bg-[#23252b] focus:outline-none focus:ring-2 focus:ring-blue-500/40 whitespace-nowrap min-w-[180px]"
+                    aria-haspopup="dialog"
+                    aria-expanded={isDateOpen}
+                    aria-label="Change date range"
+                    title="Date range"
+                  >
+                    <span className="text-gray-400">Within:</span>
+                    <span className="font-medium text-gray-200">{formatRangeLabel}</span>
+                    {(fromDate || toDate) && (
+                      <span
+                        onClick={(e) => { e.stopPropagation(); setPresetRange(null); setIsDateOpen(false); }}
+                        className="ml-1 inline-flex items-center justify-center rounded-full bg-[#3b3d44] text-gray-200 w-4 h-4 text-[10px] hover:bg-[#4a4d55]"
+                        aria-label="Clear date range"
+                        title="Clear date range"
+                      >
+                        ×
+                      </span>
+                    )}
+                  </button>
+
+                  {isDateOpen && datePanelPos && createPortal(
+                    <div
+                      ref={datePanelRef}
+                      role="dialog"
+                      aria-label="Date range"
+                      style={{ position: 'fixed', left: datePanelPos.left, top: datePanelPos.top, width: datePanelPos.width, maxHeight: '70vh' }}
+                      className="mt-0 overflow-auto rounded-lg border border-[#3b3d44] bg-[#1E1F24] shadow-2xl z-[10000]"
+                    >
+                      <div className="px-4 py-3 border-b border-[#3b3d44] flex items-center justify-between sticky top-0 bg-[#1E1F24]">
+                        <div className="text-sm font-semibold text-gray-200">Date range</div>
+                        <button onClick={() => setIsDateOpen(false)} className="text-xs text-gray-300 hover:text-white">Close</button>
+                      </div>
+                      <div className="p-4 space-y-3">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <button onClick={() => setPresetRange(null)} className={`px-3 py-1 rounded-md border ${isPresetActive(null) ? 'bg-[#44d7b6] text-black border-[#44d7b6]' : 'bg-[#1E1F24] text-gray-200 border-[#383a3e] hover:bg-[#26282d]'}`}>All time</button>
+                          <button onClick={() => setPresetRange(1)} className={`px-3 py-1 rounded-md border ${isPresetActive(1) ? 'bg-[#44d7b6] text-black border-[#44d7b6]' : 'bg-[#1E1F24] text-gray-200 border-[#383a3e] hover:bg-[#26282d]'}`}>24h</button>
+                          <button onClick={() => setPresetRange(7)} className={`px-3 py-1 rounded-md border ${isPresetActive(7) ? 'bg-[#44d7b6] text-black border-[#44d7b6]' : 'bg-[#1E1F24] text-gray-200 border-[#383a3e] hover:bg-[#26282d]'}`}>7d</button>
+                          <button onClick={() => setPresetRange(30)} className={`px-3 py-1 rounded-md border ${isPresetActive(30) ? 'bg-[#44d7b6] text-black border-[#44d7b6]' : 'bg-[#1E1F24] text-gray-200 border-[#383a3e] hover:bg-[#26282d]'}`}>30d</button>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <input type="date" value={fromDate ? new Date(fromDate).toISOString().slice(0, 10) : ''} onChange={(e) => handleFromDateChange(e.target.value ? new Date(`${e.target.value}T00:00:00.000Z`).toISOString() : null)} className="bg-[#1E1F24] text-white rounded-md px-3 py-1 ring-1 ring-[#383a3e] focus:ring-[#44d7b6]/60" />
+                          <span className="text-gray-400 text-sm">to</span>
+                          <input type="date" value={toDate ? new Date(toDate).toISOString().slice(0, 10) : ''} onChange={(e) => handleToDateChange(e.target.value ? new Date(`${e.target.value}T23:59:59.999Z`).toISOString() : null)} className="bg-[#1E1F24] text-white rounded-md px-3 py-1 ring-1 ring-[#383a3e] focus:ring-[#44d7b6]/60" />
+                        </div>
+                      </div>
+                    </div>, document.body)
+                  }
+                </div>
                 <div className="relative">
                   <button
                     ref={filterButtonRef}
@@ -1609,55 +1843,28 @@ function SearchPageInner() {
                     See full dataset
                   </button>
                 )}
-              </div>
 
-              {(filters.length > 0 || globalSentimentStatus === 'complete') && sentimentSummary.total > 0 && (
-                <div className="hidden md:flex items-center gap-4 ml-auto" aria-live="polite">
-                  <div className="text-xs uppercase text-gray-400">Sentiment</div>
-                  <div className="w-40 h-2 bg-[#3D3F46] rounded-full overflow-hidden" title={`Positive ${sentimentSummary.positivePct}%, Neutral ${sentimentSummary.neutralPct}%, Negative ${sentimentSummary.negativePct}%`}>
-                    <div className="h-full flex">
-                      <div className="h-full bg-[#44d7b6]" style={{ width: `${sentimentSummary.positivePct}%` }} />
-                      <div className="h-full bg-gray-500" style={{ width: `${sentimentSummary.neutralPct}%` }} />
-                      <div className="h-full bg-[#ff6384]" style={{ width: `${sentimentSummary.negativePct}%` }} />
+                {/* Sentiment bar - now aligned with other elements */}
+                {(filters.length > 0 || globalSentimentStatus === 'complete') && sentimentSummary.total > 0 && (
+                  <div className="relative" title={`Positive ${sentimentSummary.positivePct}%, Neutral ${sentimentSummary.neutralPct}%, Negative ${sentimentSummary.negativePct}%`}>
+                    {/* Labels above segments */}
+                    <div className="absolute -top-6 left-0 right-0 flex text-[12px] font-semibold select-none">
+                      <div className="text-[#44d7b6]" style={{ width: `${sentimentSummary.positivePct}%`, textAlign: 'left' }}>{sentimentSummary.positivePct}%</div>
+                      <div className="text-gray-300" style={{ width: `${sentimentSummary.neutralPct}%`, textAlign: 'center' }}>{sentimentSummary.neutralPct}%</div>
+                      <div className="text-[#ff738d]" style={{ width: `${sentimentSummary.negativePct}%`, textAlign: 'right' }}>{sentimentSummary.negativePct}%</div>
+                    </div>
+                    {/* Bar aligned with other toolbar elements */}
+                    <div className="w-64 h-3 bg-[#3D3F46] rounded-full overflow-hidden">
+                      <div className="h-full flex">
+                        <div className="h-full bg-[#44d7b6]" style={{ width: `${sentimentSummary.positivePct}%` }} />
+                        <div className="h-full bg-gray-500" style={{ width: `${sentimentSummary.neutralPct}%` }} />
+                        <div className="h-full bg-[#ff6384]" style={{ width: `${sentimentSummary.negativePct}%` }} />
+                      </div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      className="inline-flex rounded-full px-2 py-1 text-[11px] font-semibold bg-[rgba(68,215,182,0.15)] text-[#44d7b6] border border-[#44d7b6]/30"
-                      onClick={() => addFilter('sentiment', 'positive')}
-                      title="Filter: Positive"
-                    >
-                      {sentimentSummary.positivePct}%
-                    </button>
-                    <button
-                      className="inline-flex rounded-full px-2 py-1 text-[11px] font-semibold bg-[#3D3F46] text-gray-200 border border-[#5a5d66]"
-                      onClick={() => addFilter('sentiment', 'neutral')}
-                      title="Filter: Neutral"
-                    >
-                      {sentimentSummary.neutralPct}%
-                    </button>
-                    <button
-                      className="inline-flex rounded-full px-2 py-1 text-[11px] font-semibold bg-[rgba(255,99,132,0.15)] text-[#ff6384] border border-[#ff6384]/30"
-                      onClick={() => addFilter('sentiment', 'negative')}
-                      title="Filter: Negative"
-                    >
-                      {sentimentSummary.negativePct}%
-                    </button>
-                  </div>
-                  <div
-                    className={`hidden lg:inline-flex items-center rounded-md px-2 py-1 text-[11px] font-medium border ${
-                      sentimentSummary.dominant === 'positive'
-                        ? 'bg-[rgba(68,215,182,0.12)] text-[#44d7b6] border-[#44d7b6]/30'
-                        : sentimentSummary.dominant === 'negative'
-                        ? 'bg-[rgba(255,99,132,0.12)] text-[#ff6384] border-[#ff6384]/30'
-                        : 'bg-[#1E1F24] text-gray-300 border-[#3b3d44]'
-                    }`}
-                    title={`Dominant: ${sentimentSummary.dominant ?? '—'}`}
-                  >
-                    {sentimentSummary.dominant ? `${sentimentSummary.dominant.charAt(0).toUpperCase()}${sentimentSummary.dominant.slice(1)}` : '—'}
-                  </div>
-                </div>
-              )}
+                )}
+              </div>
+
               {filters.length === 0 && globalSentimentStatus === 'loading' && (
                 <div className="hidden md:flex items-center gap-2 ml-auto text-xs text-gray-400" aria-live="polite">
                   Calculating sentiment across all results…
@@ -1710,9 +1917,17 @@ function SearchPageInner() {
               <div className="text-sm text-red-400 mt-2">{error}</div>
             )}
             {!loading && !error && results.length === 0 && (initialQuery ? (
-              <div className="py-6 text-gray-300">No results for "{initialQuery}". Try a different query.</div>
+              <div className="py-6 text-gray-300">
+                {fromDate || toDate
+                  ? `No results for "${initialQuery}" within the selected timeframe.`
+                  : `No results for "${initialQuery}". Try a different query.`}
+              </div>
             ) : (
-              <div className="py-6 text-gray-400">Enter a keyword to search posts.</div>
+              <div className="py-6 text-gray-400">
+                {fromDate || toDate
+                  ? 'No posts found within the selected timeframe.'
+                  : 'Enter a keyword to search posts.'}
+              </div>
             ))}
           </div>
 
@@ -1721,9 +1936,29 @@ function SearchPageInner() {
               <table className="min-w-[1400px] w-full divide-y divide-gray-700">
                 <thead className="bg-[#24262b] sticky top-0 z-10">
                   <tr>
-                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Date</th>
+                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                      <button
+                        onClick={() => handleToggleSort('date')}
+                        className={`${sortBy === 'date' ? 'text-white' : ''} inline-flex items-center gap-1`}
+                        title="Toggle sort by date"
+                        aria-label="Toggle sort by date"
+                      >
+                        Date
+                        <span className="text-[10px] opacity-80">{sortBy === 'date' ? (sortDir === 'asc' ? '▲' : '▼') : '↕'}</span>
+                      </button>
+                    </th>
                     <th className="px-3 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Title</th>
-                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Upvotes</th>
+                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                      <button
+                        onClick={() => handleToggleSort('ups')}
+                        className={`${sortBy === 'ups' ? 'text-white' : ''} inline-flex items-center gap-1`}
+                        title="Toggle sort by upvotes"
+                        aria-label="Toggle sort by upvotes"
+                      >
+                        Upvotes
+                        <span className="text-[10px] opacity-80">{sortBy === 'ups' ? (sortDir === 'asc' ? '▲' : '▼') : '↕'}</span>
+                      </button>
+                    </th>
                     <th 
                       className="px-3 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-help"
                       onMouseEnter={(e) => handleHeaderMouseEnter('sentiment', e)}
